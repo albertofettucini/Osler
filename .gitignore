@@ -1,0 +1,16 @@
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Xcode
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Packaging output (rebuilt by scripts/package-app.sh)
+/Osler.app
+assets/AppIcon-placeholder.png
