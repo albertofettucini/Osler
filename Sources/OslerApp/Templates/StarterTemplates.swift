@@ -47,10 +47,22 @@ enum StarterTemplates {
         name: "Summarize",
         summary: "One agent rewrites the input text into a short summary."
     ) { context in
+        // Real sample content, not an instruction: the home screen promises
+        // "press Run" works, and an instruction here would just make the model
+        // reply "paste the text you'd like summarized".
         let input = Node(
             name: "Text",
             position: Point(x: 80, y: 180),
-            config: .input(text: "Paste any text here and press Run. The agent will summarize it in one sentence.")
+            config: .input(text: """
+            The Mac arrived in 1984 with a graphical interface, a mouse, and the \
+            claim that a computer could be personal. Its first years were rough: \
+            expensive, underpowered, nearly cancelled. Decades on, the ideas it \
+            argued for — direct manipulation, consistency between apps, software \
+            that respects the person using it — are the baseline every desktop is \
+            measured against.
+
+            Replace this with your own text and press Run again.
+            """)
         )
         let agent = context.agent("Summarize the user's text in a single clear sentence. Reply with the summary only.")
         let summarizer = Node(name: "Summarizer", position: Point(x: 380, y: 180), config: .agent(agent))
