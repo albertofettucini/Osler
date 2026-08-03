@@ -13,59 +13,75 @@ struct HomeView: View {
     @State private var recents: [RecentFlows.Entry] = []
     @State private var userTemplates: [UserTemplates.Entry] = []
 
-    private let columns = [GridItem(.adaptive(minimum: 190), spacing: 14)]
+    // Fewer, larger cards: the thumbnails are the point, and a wall of small
+    // tiles left half the window empty underneath.
+    private let columns = [GridItem(.adaptive(minimum: 240), spacing: 16)]
 
     var body: some View {
         ZStack {
             Theme.surfaceContainer
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                        .padding(.bottom, 30)
-
-                    if !recents.isEmpty {
-                        sectionLabel("RECENT")
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 10)],
-                                  spacing: 10) {
-                            ForEach(recents) { entry in
-                                RecentCard(entry: entry) { open(entry) }
-                            }
-                        }
-                        .padding(.bottom, 30)
-                    }
-
-                    sectionLabel("TEMPLATES")
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        BlankCard { newFlow() }
-                        ForEach(StarterTemplates.all) { template in
-                            let graph = template.make(settings.templateContext)
-                            TemplateCard(name: template.name,
-                                         summary: template.summary,
-                                         graph: graph) {
-                                open(graph)
-                            }
-                        }
-                    }
-
-                    if !userTemplates.isEmpty {
-                        sectionLabel("MY TEMPLATES")
-                            .padding(.top, 30)
-                        LazyVGrid(columns: columns, spacing: 14) {
-                            ForEach(userTemplates) { entry in
-                                SavedTemplateCard(entry: entry) { open(saved: entry) }
-                            }
-                        }
-                    }
+            GeometryReader { geo in
+                ScrollView {
+                    content
+                        .padding(.horizontal, 44)
+                        .padding(.vertical, 38)
+                        .frame(maxWidth: 1120)
+                        // Centred when the shelf is shorter than the window, so
+                        // the leftover space sits around it rather than under it.
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height,
+                               alignment: .center)
                 }
-                .padding(.horizontal, 44)
-                .padding(.vertical, 38)
-                .frame(maxWidth: 1120)
-                .frame(maxWidth: .infinity)
             }
         }
         .task { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: UserTemplates.changed)) { _ in
             userTemplates = UserTemplates.all()
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.bottom, 30)
+
+            if !recents.isEmpty {
+                sectionLabel("RECENT")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 10)],
+                          spacing: 10) {
+                    ForEach(recents) { entry in
+                        RecentCard(entry: entry) { open(entry) }
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+
+            sectionLabel("TEMPLATES")
+            LazyVGrid(columns: columns, spacing: 16) {
+                BlankCard { newFlow() }
+                ForEach(StarterTemplates.all) { template in
+                    let graph = template.make(settings.templateContext)
+                    TemplateCard(name: template.name,
+                                 summary: template.summary,
+                                 graph: graph) {
+                        open(graph)
+                    }
+                }
+            }
+
+            if !userTemplates.isEmpty {
+                sectionLabel("MY TEMPLATES")
+                    .padding(.top, 30)
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(userTemplates) { entry in
+                        SavedTemplateCard(entry: entry) { open(saved: entry) }
+                    }
+                }
+            }
+
+            Text("Flows are plain JSON files on your Mac. Nothing leaves it.")
+                .font(.oslerBody(11))
+                .foregroundStyle(Theme.textFaint)
+                .padding(.top, 26)
         }
     }
 
@@ -203,9 +219,9 @@ private struct TemplateCard: View {
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 0) {
-                FlowThumbnail(graph: graph)
-                    .frame(height: 46)
-                    .padding(.bottom, 12)
+                FlowThumbnail(graph: graph, dotRadius: 4.5)
+                    .frame(height: 66)
+                    .padding(.bottom, 14)
                 Text(name)
                     .font(.oslerBody(13, weight: .medium))
                     .foregroundStyle(Theme.textPrimary)
@@ -218,8 +234,8 @@ private struct TemplateCard: View {
                     .padding(.top, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .frame(minHeight: 128, alignment: .top)
+            .padding(16)
+            .frame(minHeight: 158, alignment: .top)
             .modifier(CardChrome(hovering: hovering))
         }
         .buttonStyle(.plain)
@@ -237,7 +253,7 @@ private struct BlankCard: View {
         Button(action: create) {
             VStack(spacing: 6) {
                 Image(systemName: "plus")
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(Theme.textSecondary)
                 Text("Blank")
                     .font(.oslerBody(13, weight: .medium))
@@ -247,8 +263,8 @@ private struct BlankCard: View {
                     .foregroundStyle(Theme.textFaint)
             }
             .frame(maxWidth: .infinity)
-            .padding(14)
-            .frame(minHeight: 128)
+            .padding(16)
+            .frame(minHeight: 158)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Theme.hoverFill)
                 .opacity(hovering ? 1 : 0))
