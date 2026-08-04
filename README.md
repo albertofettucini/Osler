@@ -24,6 +24,8 @@ Branches that don't depend on each other run **concurrently**, several inputs
 can fan into one node (they're joined in edge order), and the branch a
 condition didn't take is marked skipped rather than silently dropped.
 
+![One question, three agents in parallel, one merge](docs/concurrency.png)
+
 ## Why so few nodes?
 
 Because the vocabulary is small, not the ceiling. An Agent reaches anything
