@@ -352,12 +352,36 @@ public struct FlowEngine: Sendable {
                 let result = await toolbox.call(name: call.name, argumentsJSON: call.argumentsJSON)
                 transcript.append(.toolResult(
                     callID: call.id,
-                    content: String(result.content.prefix(resultCap)),
+                    content: Self.clamp(result.content, to: resultCap),
                     isError: result.isError
                 ))
             }
         }
         throw FlowEngineError.toolLoopLimit(rounds: maxRounds)
+    }
+
+    /// Caps an oversized tool result without handing the model a lie.
+    ///
+    /// A raw `prefix(n)` can slice through the middle of a JSON payload, and
+    /// the model has no way to tell a truncated object from a malformed one.
+    /// So: cut on the last line break before the limit when there is one
+    /// (line-oriented output stays whole-record), and always say out loud that
+    /// something was dropped.
+    static func clamp(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let head = text.prefix(limit)
+        // Only honour a line break that isn't hiding right at the start —
+        // otherwise a single long line would collapse to almost nothing.
+        let body: Substring
+        if let lastBreak = head.lastIndex(of: "\n"),
+           head.distance(from: head.startIndex, to: lastBreak) > limit / 2 {
+            body = head[..<lastBreak]
+        } else {
+            body = head
+        }
+        let dropped = text.count - body.count
+        return body + "\n\n[Truncated by Osler: \(dropped) more characters were omitted. " +
+            "Treat this result as incomplete — narrow the request if you need the rest.]"
     }
 
     private func evaluate(_ rule: ConditionRule, input: String,

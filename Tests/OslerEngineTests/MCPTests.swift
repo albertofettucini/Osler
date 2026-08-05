@@ -249,3 +249,38 @@ final class ToolServerCodableTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Oversized tool results
+
+final class ToolResultClampTests: XCTestCase {
+    func testShortResultIsUntouched() {
+        XCTAssertEqual(FlowEngine.clamp("small", to: 100), "small")
+    }
+
+    func testLineOrientedOutputIsCutOnARecordBoundary() {
+        // 40 lines of "record N" — the cut must land between records, never
+        // mid-line, so the model never sees half a record.
+        let text = (1...40).map { "record \($0)" }.joined(separator: "\n")
+        let clamped = FlowEngine.clamp(text, to: 200)
+        let body = clamped.components(separatedBy: "\n\n[Truncated by Osler")[0]
+        XCTAssertTrue(body.hasSuffix(body.split(separator: "\n").last.map(String.init) ?? ""))
+        for line in body.split(separator: "\n") {
+            XCTAssertTrue(line.hasPrefix("record "), "partial record: \(line)")
+        }
+        XCTAssertTrue(clamped.contains("Truncated by Osler"))
+    }
+
+    func testSingleLongLineStillGetsMostOfItsBudget() {
+        // No newline to cut on: keep the head rather than collapsing to nothing.
+        let text = String(repeating: "x", count: 5_000)
+        let clamped = FlowEngine.clamp(text, to: 1_000)
+        let body = clamped.components(separatedBy: "\n\n[Truncated by Osler")[0]
+        XCTAssertEqual(body.count, 1_000)
+    }
+
+    func testTruncationIsAnnouncedWithTheDroppedCount() {
+        let text = String(repeating: "y", count: 300)
+        let clamped = FlowEngine.clamp(text, to: 100)
+        XCTAssertTrue(clamped.contains("200 more characters"), clamped)
+    }
+}
