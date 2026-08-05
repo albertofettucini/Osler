@@ -11,7 +11,14 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="Osler"
 BUNDLE_ID="com.osler.app"
-VERSION="0.1.0"
+VERSION="1.1.0"
+# Sparkle: where the app looks for new versions, and the key that proves an
+# update really came from this project. The private half lives only in the
+# maintainer's Keychain — see scripts/make-release.sh.
+FEED_URL="https://raw.githubusercontent.com/albertofettucini/Osler/main/appcast.xml"
+# Public half only — safe to commit. It's what lets an installed copy refuse
+# an update that wasn't signed with the matching private key.
+SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-ebQJqPEUVaCSBjFbDSjs7iiXRylBjtQBoro+qwR8UKo=}"
 BUILD_DIR=".build/release"
 APP="$APP_NAME.app"
 
@@ -25,9 +32,25 @@ echo "▸ Assembling $APP…"
 # (provenance is SIP-protected) and codesign then rejects the bundle as
 # "detritus". A private temp dir never gets stamped; sign there, copy last.
 STAGE="$(mktemp -d)/$APP"
-mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" "$STAGE/Contents/Frameworks"
 # -X: drop extended attributes already present on the built binary.
 cp -X "$BUILD_DIR/Osler" "$STAGE/Contents/MacOS/$APP_NAME"
+
+# ── Sparkle ─────────────────────────────────────────────────────────────────
+# SwiftPM links the framework but never embeds it, so a bundle built this way
+# would die at launch with a dyld error. Copy it in and teach the executable
+# to look beside itself.
+SPARKLE_FW="$(find .build/artifacts -type d -name 'Sparkle.framework' -path '*macos*' | head -1)"
+if [ -z "$SPARKLE_FW" ]; then
+  echo "✗ Sparkle.framework not found — run 'swift package resolve' first." >&2
+  exit 1
+fi
+echo "▸ Embedding Sparkle…"
+cp -R "$SPARKLE_FW" "$STAGE/Contents/Frameworks/"
+xattr -cr "$STAGE/Contents/Frameworks/Sparkle.framework"
+# Harmless if the rpath is already there (a rebuilt binary may carry it).
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+  "$STAGE/Contents/MacOS/$APP_NAME" 2>/dev/null || true
 
 # ── Icon ────────────────────────────────────────────────────────────────────
 # assets/AppIcon.png (the logo) becomes a symbol-only icon: Vision lifts the
@@ -69,6 +92,9 @@ cat > "$STAGE/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>MIT License</string>
+    <key>SUFeedURL</key><string>$FEED_URL</string>
+    <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
+    <key>SUEnableAutomaticChecks</key><true/>
 </dict>
 </plist>
 PLIST
@@ -76,6 +102,17 @@ PLIST
 echo "▸ Ad-hoc code signing…"
 # Belt and braces: strip whatever attributes the temp stage did pick up.
 xattr -cr "$STAGE"
+# Nested code must be signed before the bundle that contains it, or the outer
+# signature seals a framework that then fails its own check.
+codesign --force --sign - --timestamp=none \
+  "$STAGE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" 2>/dev/null || true
+codesign --force --sign - --timestamp=none \
+  "$STAGE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" 2>/dev/null || true
+codesign --force --sign - --timestamp=none \
+  "$STAGE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate" 2>/dev/null || true
+codesign --force --sign - --timestamp=none \
+  "$STAGE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app" 2>/dev/null || true
+codesign --force --sign - --timestamp=none "$STAGE/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep --sign - "$STAGE"
 
 # Signed bundle → repo copy (and Desktop). Attributes stamped on the copies

@@ -8,6 +8,7 @@ struct OslerMainApp: App {
     @StateObject private var editor = FlowEditor()
     @StateObject private var settings = SettingsStore()
     @StateObject private var run = RunController()
+    @StateObject private var updates = UpdateController()
 
     var body: some Scene {
         WindowGroup {
@@ -22,7 +23,10 @@ struct OslerMainApp: App {
         // lights float over the app's own top bar.
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1380, height: 880)
-        .commands { AppCommands(appState: appState, editor: editor, run: run, settings: settings) }
+        .commands {
+            AppCommands(appState: appState, editor: editor, run: run,
+                        settings: settings, updates: updates)
+        }
 
         // A plain Window instead of the Settings scene: the Settings scene
         // refuses .hiddenTitleBar (it kept a black strip), a Window honours it.
@@ -30,6 +34,7 @@ struct OslerMainApp: App {
         Window("Settings", id: "settings") {
             SettingsView()
                 .environmentObject(settings)
+                .environmentObject(updates)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

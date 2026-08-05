@@ -14,3 +14,4 @@ DerivedData/
 # Packaging output (rebuilt by scripts/package-app.sh)
 /Osler.app
 assets/AppIcon-placeholder.png
+dist/

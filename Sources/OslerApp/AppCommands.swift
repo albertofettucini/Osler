@@ -15,10 +15,15 @@ struct AppCommands: Commands {
     @ObservedObject var editor: FlowEditor
     @ObservedObject var run: RunController
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var updates: UpdateController
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Osler") { AppInfo.showAboutPanel() }
+            if updates.isAvailable {
+                Button("Check for Updates…") { updates.checkForUpdates() }
+                    .disabled(!updates.canCheck)
+            }
         }
 
         CommandGroup(replacing: .appSettings) {

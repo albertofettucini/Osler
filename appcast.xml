@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Osler</title>
+    <link>https://raw.githubusercontent.com/albertofettucini/Osler/main/appcast.xml</link>
+    <description>Updates for Osler.</description>
+    <language>en</language>
+    <item>
+      <title>1.1.0</title>
+      <pubDate>Wed, 05 Aug 2026 12:43:43 +0000</pubDate>
+      <sparkle:version>1.1.0</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[First public release. Four node types, MCP tools, and local models via Ollama.]]></description>
+      <enclosure url="https://github.com/albertofettucini/Osler/releases/download/v1.1.0/Osler-1.1.0.zip"
+                 length="3623099"
+                 type="application/octet-stream"
+                 sparkle:edSignature="dJP5ew8fNeiCOcp3PvQPtEeGpIMWJMm5BZQOs38ohmgFRxdRyBDW0PJ57mafnMbcH+rMoDg1c1lmox0YMp0QBQ==" length="3623099" />
+    </item>
+  </channel>
+</rss>

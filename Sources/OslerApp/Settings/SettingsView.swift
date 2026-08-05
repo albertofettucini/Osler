@@ -6,6 +6,7 @@ import OslerEngine
 /// the user's wash) as the main window, so it reads as part of the app.
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var updates: UpdateController
 
     private enum Tab: String, CaseIterable {
         case general = "General"
@@ -111,12 +112,35 @@ struct SettingsView: View {
                     .controlSize(.small)
                     .tint(Theme.accent)
             }
+            if updates.isAvailable {
+                rowDivider
+                row("Check for updates automatically",
+                    "Osler looks for a new version now and then. Updates are signature-verified.") {
+                    Toggle("", isOn: Binding(
+                        get: { updates.automaticallyChecks },
+                        set: { updates.automaticallyChecks = $0 }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(Theme.accent)
+                }
+            }
             rowDivider
             row("Version", AppInfo.tagline) {
-                Button("About") { AppInfo.showAboutPanel() }
-                    .buttonStyle(HoverPillStyle())
-                    .font(.oslerBody(11.5))
-                    .foregroundStyle(Theme.textSecondary)
+                HStack(spacing: 8) {
+                    if updates.isAvailable {
+                        Button("Check now") { updates.checkForUpdates() }
+                            .buttonStyle(HoverPillStyle())
+                            .font(.oslerBody(11.5))
+                            .foregroundStyle(Theme.textSecondary)
+                            .disabled(!updates.canCheck)
+                    }
+                    Button("About") { AppInfo.showAboutPanel() }
+                        .buttonStyle(HoverPillStyle())
+                        .font(.oslerBody(11.5))
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
         }
     }
