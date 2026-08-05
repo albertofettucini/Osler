@@ -88,7 +88,19 @@ server at `localhost:11434`.
 
 ## Getting started
 
-Requirements: macOS 14+ and Swift 5.9+ (Xcode 15+).
+**[Download the latest release](https://github.com/albertofettucini/Osler/releases/latest)**
+— macOS 14 or newer. Open the `.dmg`, drag Osler to Applications, then
+**right-click it and choose Open** the first time.
+
+That first-launch warning isn't a problem with the app — it just isn't signed
+with a paid Apple developer account. Right-click → Open tells macOS you meant
+it, once. (No "Open" in the menu? System Settings → Privacy & Security →
+**Open Anyway**.) After that Osler updates itself, and every update is
+signature-verified, so a tampered download is refused.
+
+### Or build it
+
+Requirements: Swift 5.9+ (Xcode 15+).
 
 ```sh
 git clone https://github.com/albertofettucini/Osler.git
@@ -96,14 +108,11 @@ cd Osler
 swift run Osler
 ```
 
-Or build a real, double-clickable app:
+And to produce the app bundle itself:
 
 ```sh
 ./scripts/package-app.sh --desktop     # builds Osler.app and copies it to ~/Desktop
 ```
-
-The bundle is ad-hoc signed (no Apple Developer account behind it), so the
-first launch needs **right-click → Open** once. macOS remembers after that.
 
 Other targets:
 
