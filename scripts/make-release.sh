@@ -73,8 +73,10 @@ hdiutil create -volname "Osler" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DM
 
 # ── Sign the update and write the feed ──────────────────────────────────────
 echo "▸ Signing the update…"
-SIGNATURE_LINE="$("$SIGN_TOOL" "$ZIP")"   # ed_signature="…" length="…"
-LENGTH="$(stat -f%z "$ZIP")"
+# sign_update prints BOTH sparkle:edSignature="…" and length="…" — emitting
+# our own length as well produced a duplicate attribute, which is a hard XML
+# parse error, which meant Sparkle could never read the feed at all.
+SIGNATURE_LINE="$("$SIGN_TOOL" "$ZIP")"
 PUB_DATE="$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 
 cat > appcast.xml <<XML
@@ -93,7 +95,6 @@ cat > appcast.xml <<XML
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[${NOTES:-See the release notes on GitHub.}]]></description>
       <enclosure url="$FEED_BASE/v$VERSION/Osler-$VERSION.zip"
-                 length="$LENGTH"
                  type="application/octet-stream"
                  $SIGNATURE_LINE />
     </item>
