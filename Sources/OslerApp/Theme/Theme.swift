@@ -104,12 +104,20 @@ enum Theme {
     /// Node type identity colours — the one sanctioned exception to §1:
     /// they encode MEANING (which kind of node is which, at a glance),
     /// not decoration. All other chrome stays grayscale.
+    ///
+    /// Built once. These used to be constructed per call, which meant a fresh
+    /// dynamic NSColor for every card, port and library row on every frame.
+    private static let tintInput = dyn(0x0E9384, 0x35C7B4)     // teal
+    private static let tintAgent = dyn(0x7B5BE6, 0x9B7BFF)     // violet
+    private static let tintCondition = dyn(0xC17A06, 0xE0A64B) // amber
+    private static let tintOutput = dyn(0x2563EB, 0x6E9BFF)    // blue
+
     static func nodeTint(_ kind: NodeKind) -> Color {
         switch kind {
-        case .input: return dyn(0x0E9384, 0x35C7B4)     // teal
-        case .agent: return dyn(0x7B5BE6, 0x9B7BFF)     // violet
-        case .condition: return dyn(0xC17A06, 0xE0A64B) // amber
-        case .output: return dyn(0x2563EB, 0x6E9BFF)    // blue
+        case .input: return tintInput
+        case .agent: return tintAgent
+        case .condition: return tintCondition
+        case .output: return tintOutput
         case .unknown: return textFaint
         }
     }
@@ -126,24 +134,31 @@ enum Theme {
 
     /// Run-state colour: working = the accent, error = the one functional hue,
     /// everything else is a neutral step (§5 — no green, no yellow).
+    private static let stateDone = dyn(0x4D5257, 0xE0E6ED)    // bright neutral
+    private static let stateSkipped = dyn(0x8C8F94, 0x999EA8) // mid neutral
+
     static func stateColor(_ state: NodeRunState) -> Color {
         switch state {
         case .idle: return textFaint
         case .running: return accent
-        case .done: return dyn(0x4D5257, 0xE0E6ED)    // bright neutral
+        case .done: return stateDone
         case .failed: return error
-        case .skipped: return dyn(0x8C8F94, 0x999EA8) // mid neutral
+        case .skipped: return stateSkipped
         }
     }
 
     /// Soft chip background for a run state.
+    private static let chipDone = dyn(0x000000, 0.07, 0xFFFFFF, 0.10)
+    private static let chipFailed = dyn(0xD13D47, 0.12, 0xFF8C85, 0.16)
+    private static let chipSkipped = dyn(0x000000, 0.05, 0xFFFFFF, 0.06)
+
     static func stateChipBackground(_ state: NodeRunState) -> Color {
         switch state {
         case .idle: return surfaceContainer
         case .running: return accentSoft
-        case .done: return dyn(0x000000, 0.07, 0xFFFFFF, 0.10)
-        case .failed: return dyn(0xD13D47, 0.12, 0xFF8C85, 0.16)
-        case .skipped: return dyn(0x000000, 0.05, 0xFFFFFF, 0.06)
+        case .done: return chipDone
+        case .failed: return chipFailed
+        case .skipped: return chipSkipped
         }
     }
 }

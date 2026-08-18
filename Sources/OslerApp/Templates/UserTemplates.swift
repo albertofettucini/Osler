@@ -29,11 +29,25 @@ enum UserTemplates {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// True when a template of this name already exists, so the caller can
+    /// ask before overwriting someone's saved work.
+    static func exists(named name: String) -> Bool {
+        FileManager.default.fileExists(atPath: url(for: name).path)
+    }
+
+    static func url(for name: String) -> URL {
+        // Also strips ".." and separators: a name is a file name, never a path.
+        let safe = name
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "..", with: "-")
+        return directory.appendingPathComponent(safe + ".oslerflow")
+    }
+
     static func save(_ graph: FlowGraph, named name: String) throws {
         var toSave = graph
         toSave.name = name
-        let safe = name.replacingOccurrences(of: "/", with: "-")
-        try toSave.write(to: directory.appendingPathComponent(safe + ".oslerflow"))
+        try toSave.write(to: url(for: name))
         NotificationCenter.default.post(name: changed, object: nil)
     }
 

@@ -102,6 +102,10 @@ struct AppCommands: Commands {
                     message: "The current flow joins My Templates in the library, ready to reuse.",
                     defaultValue: editor.graph.name
                 ) else { return }
+                if UserTemplates.exists(named: name),
+                   !Alerts.confirmReplace("A template called \"\(name)\" already exists.") {
+                    return
+                }
                 do {
                     try UserTemplates.save(editor.graph, named: name)
                 } catch {

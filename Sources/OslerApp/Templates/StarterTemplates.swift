@@ -9,6 +9,12 @@ struct TemplateContext {
     var model: String = AgentConfig.defaultAnthropicModel
     var toolServerIDs: [String] = []
 
+    /// Cheap identity for change detection — rebuilding the template shelf is
+    /// only necessary when one of these actually differs.
+    var signature: String {
+        provider.rawValue + "|" + model + "|" + toolServerIDs.joined(separator: ",")
+    }
+
     /// A pre-configured agent for this context.
     func agent(_ systemPrompt: String) -> AgentConfig {
         var config = AgentConfig(provider: provider, model: model)

@@ -14,6 +14,17 @@ enum Alerts {
         alert.runModal()
     }
 
+    /// Returns true when the user agrees to overwrite something that exists.
+    static func confirmReplace(_ detail: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Replace it?"
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// A one-field prompt; returns the trimmed text, or nil on cancel.
     static func prompt(_ title: String, message: String, defaultValue: String) -> String? {
         let alert = NSAlert()

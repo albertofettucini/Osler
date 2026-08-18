@@ -373,6 +373,11 @@ private struct IdentityHeader: View {
     }
 
     private func commit() {
+        // Switching selection tears this view down and used to fire a rename
+        // even when nothing was typed — one dirty document and two wasted
+        // undo steps for the crime of clicking a different node.
+        let resolved = draftName.isEmpty ? Node.defaultName(for: node.kind) : draftName
+        guard resolved != node.name else { return }
         editor.rename(node.id, to: draftName)
         // Reflect the substitution (empty → default name) back into the field.
         if let current = editor.node(node.id)?.name {

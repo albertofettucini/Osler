@@ -12,6 +12,12 @@ struct HomeView: View {
 
     @State private var recents: [RecentFlows.Entry] = []
     @State private var userTemplates: [UserTemplates.Entry] = []
+    /// Built once per context, not once per body: instantiating a template
+    /// mints new node UUIDs, so rebuilding inside `body` defeated SwiftUI's
+    /// diffing and redrew every thumbnail on any unrelated state change.
+    @State private var builtTemplates: [(template: StarterTemplate, graph: FlowGraph)] = []
+    @State private var builtForContext = ""
+
 
     // Fewer, larger cards: the thumbnails are the point, and a wall of small
     // tiles left half the window empty underneath.
@@ -34,6 +40,8 @@ struct HomeView: View {
             }
         }
         .task { await reload() }
+        .onAppear { rebuildTemplatesIfNeeded() }
+        .onChange(of: settings.templateContext.signature) { _, _ in rebuildTemplatesIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: UserTemplates.changed)) { _ in
             userTemplates = UserTemplates.all()
         }
@@ -58,12 +66,11 @@ struct HomeView: View {
             sectionLabel("TEMPLATES")
             LazyVGrid(columns: columns, spacing: 16) {
                 BlankCard { newFlow() }
-                ForEach(StarterTemplates.all) { template in
-                    let graph = template.make(settings.templateContext)
-                    TemplateCard(name: template.name,
-                                 summary: template.summary,
-                                 graph: graph) {
-                        open(graph)
+                ForEach(builtTemplates, id: \.template.id) { entry in
+                    TemplateCard(name: entry.template.name,
+                                 summary: entry.template.summary,
+                                 graph: entry.graph) {
+                        open(entry.graph)
                     }
                 }
             }
@@ -131,6 +138,14 @@ struct HomeView: View {
     }
 
     // MARK: Actions
+
+    /// Rebuilds the shelf only when the user's provider or MCP servers change.
+    private func rebuildTemplatesIfNeeded() {
+        let context = settings.templateContext
+        guard builtTemplates.isEmpty || context.signature != builtForContext else { return }
+        builtForContext = context.signature
+        builtTemplates = StarterTemplates.all.map { ($0, $0.make(context)) }
+    }
 
     private func reload() async {
         // File stats + tiny JSON decodes stay off the main thread.

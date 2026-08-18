@@ -25,7 +25,12 @@ struct PendingWire {
 /// wire drag. Every mutation runs through here so the view layer stays dumb.
 @MainActor
 final class FlowEditor: ObservableObject {
-    @Published var graph: FlowGraph { didSet { isDirty = true } }
+    @Published var graph: FlowGraph {
+        didSet {
+            isDirty = true
+            graphRevision &+= 1
+        }
+    }
     /// Multi-select: every selected node. Mutating it also closes the current
     /// undo-coalescing burst, so the next edit gets its own undo step.
     @Published var selectedIDs: Set<UUID> = [] { didSet { lastUndoKey = nil } }
@@ -66,8 +71,19 @@ final class FlowEditor: ObservableObject {
         return base + (isDirty ? " — Edited" : "")
     }
 
+    /// Cached because several view bodies read it on every SwiftUI pass and
+    /// the walk is O(V·E) — recomputing it five times per keystroke on a large
+    /// flow is the kind of cost that shows up as a laggy canvas.
+    private var cachedIssues: [GraphValidationError] = []
+    private var cachedIssuesToken = -1
+    private var graphRevision = 0
+
     var validationIssues: [GraphValidationError] {
-        GraphValidator.issues(in: graph)
+        if cachedIssuesToken != graphRevision {
+            cachedIssues = GraphValidator.issues(in: graph)
+            cachedIssuesToken = graphRevision
+        }
+        return cachedIssues
     }
 
     var isRunnable: Bool { validationIssues.isEmpty && !graph.nodes.isEmpty }
@@ -302,8 +318,15 @@ final class FlowEditor: ObservableObject {
             // files must keep opening), which means a foreign JSON file would
             // "decode" as an empty flow — and a later Save would overwrite the
             // original. Require the one key every flow file has.
-            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["nodes"] != nil else {
+            // Every Osler node carries an id and a type; requiring that shape
+            // keeps someone else's JSON (which may well have a "nodes" key)
+            // from opening as a near-empty flow that Save would then destroy.
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let nodes = object?["nodes"] as? [[String: Any]]
+            let looksLikeAFlow = nodes.map { list in
+                list.isEmpty || list.contains { $0["id"] != nil && $0["type"] != nil }
+            } ?? false
+            guard looksLikeAFlow else {
                 Alerts.error(
                     "Not an Osler flow",
                     "\"\(url.lastPathComponent)\" isn't an Osler flow file, so it wasn't opened."

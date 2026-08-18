@@ -93,10 +93,16 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Set when the Keychain refused a write, so the UI can stop claiming the
+    /// key is stored when it isn't.
+    @Published private(set) var keychainError: String?
+
     private func persist(_ value: String, for provider: ProviderID) {
         guard !isLoading else { return }
-        Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines),
-                     account: provider.rawValue)
+        let ok = Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines),
+                              account: provider.rawValue)
+        keychainError = ok ? nil
+            : "macOS wouldn't let Osler save the \(provider.displayName) key to your Keychain. It won't persist."
     }
 
     func key(for provider: ProviderID) -> String {
