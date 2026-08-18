@@ -87,5 +87,11 @@ public protocol ToolExecutor: Sendable {
     func tools(for serverIDs: [String]) async -> [LLMTool]
     /// Never throws: failures come back as (message, isError: true) so the
     /// model can read the error and try something else.
-    func call(name: String, argumentsJSON: String) async -> (content: String, isError: Bool)
+    ///
+    /// `allowedServerIDs` is the calling agent's own list. A model that
+    /// hallucinates a tool name belonging to another agent's server must be
+    /// refused, not quietly served — otherwise the per-node toggles are
+    /// decoration rather than a boundary.
+    func call(name: String, argumentsJSON: String,
+              allowedServerIDs: [String]) async -> (content: String, isError: Bool)
 }

@@ -287,7 +287,9 @@ public struct FlowEngine: Sendable {
                 if !tools.isEmpty {
                     return try await runToolLoop(node: node, provider: provider,
                                                  request: request, tools: tools,
-                                                 toolbox: toolbox, emit: emit)
+                                                 toolbox: toolbox,
+                                                 allowedServerIDs: config.toolServerIDs,
+                                                 emit: emit)
                 }
             }
 
@@ -324,6 +326,7 @@ public struct FlowEngine: Sendable {
         request: LLMRequest,
         tools: [LLMTool],
         toolbox: any ToolExecutor,
+        allowedServerIDs: [String],
         emit: @escaping @Sendable (FlowEvent) -> Void
     ) async throws -> NodeOutcome {
         let maxRounds = 8
@@ -349,7 +352,9 @@ public struct FlowEngine: Sendable {
             for call in turn.toolCalls {
                 try Task.checkCancellation()
                 emit(.nodeDelta(id: node.id, text: "\n⚙︎ \(call.name)…\n"))
-                let result = await toolbox.call(name: call.name, argumentsJSON: call.argumentsJSON)
+                let result = await toolbox.call(name: call.name,
+                                                argumentsJSON: call.argumentsJSON,
+                                                allowedServerIDs: allowedServerIDs)
                 transcript.append(.toolResult(
                     callID: call.id,
                     content: Self.clamp(result.content, to: resultCap),

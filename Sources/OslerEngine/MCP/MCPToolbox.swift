@@ -45,9 +45,13 @@ public actor MCPToolbox: ToolExecutor {
         serverIDs.flatMap { toolsByServer[$0] ?? [] }
     }
 
-    public func call(name: String, argumentsJSON: String) async -> (content: String, isError: Bool) {
+    public func call(name: String, argumentsJSON: String,
+                     allowedServerIDs: [String]) async -> (content: String, isError: Bool) {
         guard let serverID = toolOwners[name], let client = clients[serverID] else {
             return ("The tool \"\(name)\" is not available.", true)
+        }
+        guard allowedServerIDs.contains(serverID) else {
+            return ("The tool \"\(name)\" belongs to a server this agent isn't allowed to use.", true)
         }
         do {
             return try await client.callTool(name: name, argumentsJSON: argumentsJSON)
