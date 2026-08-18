@@ -33,7 +33,13 @@ public struct AnthropicProvider: LLMProvider {
             stream: true,
             system: request.systemPrompt,
             temperature: request.temperature,
-            messages: [.init(role: "user", content: request.userText)]
+            // The API refuses an empty content block with a bare 400. An agent
+            // can legitimately receive nothing (an upstream node produced no
+            // text), so say so rather than letting the request fail.
+            messages: [.init(role: "user",
+                             content: request.userText.isEmpty
+                                 ? "(no input was provided)"
+                                 : request.userText)]
         )
         urlRequest.httpBody = try JSONEncoder().encode(body)
 

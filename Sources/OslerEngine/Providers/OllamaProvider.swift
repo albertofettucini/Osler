@@ -17,7 +17,7 @@ public struct OllamaProvider: LLMProvider {
         let url = URL(string: normalized + "/v1/chat/completions")
             ?? URL(string: OllamaProvider.defaultBaseURL + "/v1/chat/completions")!
         // Ollama ignores the Authorization header; any non-empty token works.
-        innerProvider = OpenAIProvider(apiKey: "ollama", baseURL: url)
+        innerProvider = OpenAIProvider(apiKey: "ollama", baseURL: url, usesLegacyMaxTokens: true)
     }
 
     public func streamText(_ request: LLMRequest) async throws -> AsyncThrowingStream<String, Error> {

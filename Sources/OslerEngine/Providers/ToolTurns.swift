@@ -83,7 +83,11 @@ extension AnthropicProvider {
                 flushResults()
                 messages.append(.object([
                     "role": .string("user"),
-                    "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
+                    "content": .array([.object([
+                        "type": .string("text"),
+                        // Empty content is a 400 from the API.
+                        "text": .string(text.isEmpty ? "(no input was provided)" : text),
+                    ])]),
                 ]))
             case .assistant(let text, let toolCalls):
                 flushResults()
@@ -107,7 +111,9 @@ extension AnthropicProvider {
                 pendingResults.append(.object([
                     "type": .string("tool_result"),
                     "tool_use_id": .string(callID),
-                    "content": .string(content),
+                    // A tool that returned nothing still has to say something,
+                    // or the whole turn is rejected.
+                    "content": .string(content.isEmpty ? "(the tool returned no output)" : content),
                     "is_error": .bool(isError),
                 ]))
             }
@@ -162,7 +168,8 @@ extension OpenAIProvider {
         var body: [String: JSONValue] = [
             "model": .string(request.model),
             "messages": .array(messages),
-            "max_completion_tokens": .number(Double(request.maxTokens)),
+            (usesLegacyMaxTokens ? "max_tokens" : "max_completion_tokens"):
+                .number(Double(request.maxTokens)),
         ]
         if let temperature = request.temperature { body["temperature"] = .number(temperature) }
         if !tools.isEmpty {

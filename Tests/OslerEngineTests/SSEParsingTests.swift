@@ -80,4 +80,72 @@ final class SSEParsingTests: XCTestCase {
     func testOpenAIGarbageIsIgnored() {
         XCTAssertEqual(OpenAIProvider.parse(payload: "not json"), .ignore)
     }
+
+    // MARK: Stream termination
+    //
+    // A dropped connection used to look exactly like a finished answer: the
+    // byte sequence just ended and the node was marked done with whatever
+    // text had arrived. These pin the difference.
+
+    private func collect(_ text: String) async -> Result<[String], Error> {
+        let bytes = SyntheticBytes(text)
+        do {
+            var chunks: [String] = []
+            for try await chunk in SSE.decode(bytes: bytes, parse: { OpenAIProvider.parse(payload: $0) }) {
+                chunks.append(chunk)
+            }
+            return .success(chunks)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    func testStreamEndingWithDoneSucceeds() async throws {
+        let body = [
+            #"data: {"choices":[{"delta":{"content":"Hel"}}]}"#,
+            #"data: {"choices":[{"delta":{"content":"lo"}}]}"#,
+            "data: [DONE]",
+            "",
+        ].joined(separator: "\n")
+        let result = await collect(body)
+        XCTAssertEqual(try result.get(), ["Hel", "lo"])
+    }
+
+    func testStreamCutOffMidAnswerIsAnErrorNotAPartialSuccess() async throws {
+        let body = #"data: {"choices":[{"delta":{"content":"Hel"}}]}"# + "\n"
+        guard case .failure(let error) = await collect(body) else {
+            return XCTFail("A truncated stream must not be reported as a complete answer.")
+        }
+        guard case LLMProviderError.stream(let message) = error else {
+            return XCTFail("Expected a stream error, got \(error)")
+        }
+        XCTAssertTrue(message.contains("incomplete"), message)
+    }
+
+    func testA200ThatIsNotEventStreamIsAnError() async throws {
+        // e.g. a proxy returning an HTML interstitial with a 200.
+        guard case .failure = await collect("<html>upgrade required</html>") else {
+            return XCTFail("A non-SSE 200 must not be reported as an empty success.")
+        }
+    }
+}
+
+/// Minimal `AsyncSequence` over a byte array, so the decoder can be tested
+/// without standing up an HTTP server.
+private struct SyntheticBytes: AsyncSequence, Sendable {
+    typealias Element = UInt8
+    let bytes: [UInt8]
+
+    init(_ text: String) { bytes = Array(text.utf8) }
+
+    struct Iterator: AsyncIteratorProtocol {
+        var remaining: ArraySlice<UInt8>
+        mutating func next() async -> UInt8? {
+            guard let byte = remaining.first else { return nil }
+            remaining = remaining.dropFirst()
+            return byte
+        }
+    }
+
+    func makeAsyncIterator() -> Iterator { Iterator(remaining: bytes[...]) }
 }

@@ -57,7 +57,16 @@ enum SSE {
             throw LLMProviderError.api(statusCode: http.statusCode, message: message)
         }
 
-        return AsyncThrowingStream { continuation in
+        return decode(bytes: bytes, parse: parse)
+    }
+
+    /// The `data:`-line decoder, split out from the HTTP call so it can be
+    /// exercised against a synthetic byte sequence.
+    static func decode<Bytes: AsyncSequence & Sendable>(
+        bytes: Bytes,
+        parse: @escaping @Sendable (String) -> ProviderStreamAction
+    ) -> AsyncThrowingStream<String, Error> where Bytes.Element == UInt8 {
+AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     // Split strictly on LF (stripping a trailing CR). Do NOT use
@@ -66,18 +75,33 @@ enum SSE {
                     // string, so an LLM emitting one would split a `data:` line
                     // mid-JSON and the whole delta would be silently dropped.
                     var lineBytes: [UInt8] = []
+                    var sawStop = false
                     for try await byte in bytes {
                         guard byte != 0x0A else {
-                            if !(try handle(&lineBytes, continuation, parse)) { return }
+                            if !(try handle(&lineBytes, continuation, parse)) {
+                                sawStop = true
+                                return
+                            }
                             continue
                         }
                         lineBytes.append(byte)
                     }
                     // Flush a final line with no trailing newline.
                     if !lineBytes.isEmpty {
-                        _ = try handle(&lineBytes, continuation, parse)
+                        if !(try handle(&lineBytes, continuation, parse)) { sawStop = true }
                     }
-                    continuation.finish()
+                    // Reaching here means the body ended without the provider's
+                    // terminal marker: a dropped connection, a truncated
+                    // response, or a 200 that wasn't SSE at all. Finishing
+                    // cleanly would hand the flow a partial answer dressed up
+                    // as a complete one.
+                    if sawStop {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: LLMProviderError.stream(
+                            "The response ended before the model finished. The answer would have been incomplete."
+                        ))
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
