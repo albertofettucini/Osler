@@ -16,6 +16,7 @@ public enum GraphValidationError: Error, Equatable, Sendable, CustomStringConver
     case cycle(nodeNames: [String])
     case unknownReference(nodeName: String, reference: String)
     case referenceNotUpstream(nodeName: String, reference: String)
+    case ambiguousReference(nodeName: String, reference: String, count: Int)
 
     public var description: String {
         switch self {
@@ -49,6 +50,8 @@ public enum GraphValidationError: Error, Equatable, Sendable, CustomStringConver
             return "\"\(nodeName)\" refers to {{\(reference)}}, but no node has that name."
         case .referenceNotUpstream(let nodeName, let reference):
             return "\"\(nodeName)\" refers to {{\(reference)}}, which isn't upstream of it — that value wouldn't be ready in time."
+        case .ambiguousReference(let nodeName, let reference, let count):
+            return "\"\(nodeName)\" refers to {{\(reference)}}, but \(count) nodes share that name — rename one so the reference can only mean one thing."
         }
     }
 }
@@ -160,7 +163,14 @@ public enum GraphValidator {
                 guard let text = FlowReference.referencingText(of: node) else { continue }
                 for reference in FlowReference.names(in: text) {
                     let key = FlowReference.key(reference)
-                    guard graph.nodes.contains(where: { FlowReference.key($0.name) == key }) else {
+                    let matches = graph.nodes.filter { FlowReference.key($0.name) == key }
+                    if matches.count > 1 {
+                        issues.append(.ambiguousReference(nodeName: node.name,
+                                                          reference: reference,
+                                                          count: matches.count))
+                        continue
+                    }
+                    guard !matches.isEmpty else {
                         issues.append(.unknownReference(nodeName: node.name, reference: reference))
                         continue
                     }
