@@ -37,7 +37,43 @@ public actor MCPClient {
     private var byteIterator: FileHandle.AsyncBytes.AsyncIterator
     private var nextID = 1
 
-    public init(command: String) throws {
+    /// One request at a time. The transport is a single byte stream, so two
+    /// overlapping requests would interleave their reads and hand each caller
+    /// a payload spliced from both replies — wrong data, no error.
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Set once the transport is gone (timeout, crash, shutdown). Every later
+    /// request fails fast instead of touching a broken pipe.
+    private var isDead = false
+
+    private func acquire() async {
+        while busy {
+            await withCheckedContinuation { waiters.append($0) }
+        }
+        busy = true
+    }
+
+    private func release() {
+        busy = false
+        if !waiters.isEmpty { waiters.removeFirst().resume() }
+    }
+
+    /// Deadlines, in seconds. Overridable so tests can prove one actually
+    /// fires without waiting two minutes.
+    public struct Timeouts: Sendable {
+        public var handshake: Double
+        public var call: Double
+        public init(handshake: Double = 20, call: Double = 120) {
+            self.handshake = handshake
+            self.call = call
+        }
+    }
+
+    private let timeouts: Timeouts
+
+    public init(command: String, timeouts: Timeouts = Timeouts()) throws {
+        self.timeouts = timeouts
         let parts = command.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard !parts.isEmpty else { throw MCPError.emptyCommand }
 
@@ -65,6 +101,14 @@ public actor MCPClient {
             throw MCPError.launchFailed(error.localizedDescription)
         }
 
+        // Without this, writing to a server that has already exited raises
+        // SIGPIPE and kills Osler outright — no crash report, no save prompt,
+        // the user's unsaved canvas simply gone. With it, the write throws
+        // EPIPE and travels the normal error path.
+        let nosigpipe: Int32 = 1
+        _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor,
+                  F_SETNOSIGPIPE, nosigpipe)
+
         self.process = process
         self.stdinHandle = stdinPipe.fileHandleForWriting
         self.byteIterator = stdoutPipe.fileHandleForReading.bytes.makeAsyncIterator()
@@ -84,7 +128,7 @@ public actor MCPClient {
                 "name": .string(clientName),
                 "version": .string("1.1"),
             ]),
-        ]), timeout: 20)
+        ]), timeout: timeouts.handshake)
         try write(message: .object([
             "jsonrpc": .string("2.0"),
             "method": .string("notifications/initialized"),
@@ -99,7 +143,7 @@ public actor MCPClient {
     // MARK: Tools
 
     public func listTools() async throws -> [ToolInfo] {
-        let result = try await request("tools/list", params: .object([:]), timeout: 20)
+        let result = try await request("tools/list", params: .object([:]), timeout: timeouts.handshake)
         guard case .object(let object) = result, case .array(let tools)? = object["tools"] else {
             return []
         }
@@ -127,7 +171,7 @@ public actor MCPClient {
         let result = try await request("tools/call", params: .object([
             "name": .string(name),
             "arguments": arguments,
-        ]), timeout: 120)
+        ]), timeout: timeouts.call)
 
         guard case .object(let object) = result else { return ("", false) }
         var isError = false
@@ -145,18 +189,65 @@ public actor MCPClient {
 
     // MARK: JSON-RPC plumbing
 
+    /// Sends one request and waits for its reply.
+    ///
+    /// The deadline works by tearing the transport down rather than by
+    /// cancelling a child task: the read is blocked inside AsyncBytes, which
+    /// does not observe cancellation, so the only thing that releases it is
+    /// the pipe reaching EOF. Terminating the server does exactly that. The
+    /// same applies when the user presses Stop.
     private func request(_ method: String, params: JSONValue, timeout: Double) async throws -> JSONValue {
+        guard !isDead else { throw MCPError.serverClosed }
+        await acquire()
+        defer { release() }
+        guard !isDead else { throw MCPError.serverClosed }
+
         let id = nextID
         nextID += 1
-        try write(message: .object([
-            "jsonrpc": .string("2.0"),
-            "id": .number(Double(id)),
-            "method": .string(method),
-            "params": params,
-        ]))
-        return try await withTimeout(seconds: timeout, method: method) {
-            try await self.readResponse(id: id)
+        do {
+            try write(message: .object([
+                "jsonrpc": .string("2.0"),
+                "id": .number(Double(id)),
+                "method": .string(method),
+                "params": params,
+            ]))
+        } catch {
+            isDead = true
+            throw MCPError.serverClosed
         }
+
+        return try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: JSONValue.self) { group in
+                group.addTask { try await self.readResponse(id: id) }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    await self.markDeadAndClose()
+                    throw MCPError.timeout(method: method)
+                }
+                do {
+                    let result = try await group.next()!
+                    group.cancelAll()
+                    return result
+                } catch {
+                    group.cancelAll()
+                    // A read that ends because we just killed the server is a
+                    // timeout, not a mysterious disconnection.
+                    if error is CancellationError { throw error }
+                    if isDead, !(error is MCPError) {
+                        throw MCPError.timeout(method: method)
+                    }
+                    throw error
+                }
+            }
+        } onCancel: {
+            Task { await self.markDeadAndClose() }
+        }
+    }
+
+    /// Ends the session and unblocks anything waiting on the stream.
+    private func markDeadAndClose() {
+        isDead = true
+        shutdown()
     }
 
     private func write(message: JSONValue) throws {
@@ -197,6 +288,7 @@ public actor MCPClient {
             }
             return object["result"] ?? .null
         }
+        isDead = true
         throw MCPError.serverClosed
     }
 
@@ -211,23 +303,5 @@ public actor MCPClient {
             line.append(byte)
         }
         return line.isEmpty ? nil : line
-    }
-}
-
-/// Races an operation against a deadline.
-private func withTimeout<T: Sendable>(
-    seconds: Double,
-    method: String,
-    _ operation: @escaping @Sendable () async throws -> T
-) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            throw MCPError.timeout(method: method)
-        }
-        let result = try await group.next()!
-        group.cancelAll()
-        return result
     }
 }

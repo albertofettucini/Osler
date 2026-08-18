@@ -92,7 +92,8 @@ private struct MockExecutor: ToolExecutor {
     let answer: @Sendable (String) -> (content: String, isError: Bool)
 
     func tools(for serverIDs: [String]) async -> [LLMTool] { toolList }
-    func call(name: String, argumentsJSON: String) async -> (content: String, isError: Bool) {
+    func call(name: String, argumentsJSON: String,
+              allowedServerIDs: [String]) async -> (content: String, isError: Bool) {
         answer(name)
     }
 }
@@ -282,5 +283,95 @@ final class ToolResultClampTests: XCTestCase {
         let text = String(repeating: "y", count: 300)
         let clamped = FlowEngine.clamp(text, to: 100)
         XCTAssertTrue(clamped.contains("200 more characters"), clamped)
+    }
+}
+
+// MARK: - Transport hardening (the P0s from the audit)
+
+final class MCPTransportTests: XCTestCase {
+    /// Writes a script and returns its path.
+    private func server(_ body: String) throws -> String {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("osler-t-\(UUID().uuidString).sh")
+        try ("#!/bin/sh\n" + body + "\n").write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url.path
+    }
+
+    private let handshake = """
+    read line; printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}\\n'
+    read line
+    """
+
+    /// A server that answers the handshake and then goes silent must not wedge
+    /// the caller forever — the deadline has to tear the transport down.
+    func testSilentServerTimesOutInsteadOfHanging() async throws {
+        let path = try server(handshake + "\nsleep 60")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let client = try MCPClient(command: path,
+                                   timeouts: .init(handshake: 5, call: 0.6))
+        try await client.initialize()
+
+        let started = Date()
+        do {
+            _ = try await client.callTool(name: "whatever", argumentsJSON: "{}")
+            XCTFail("expected the deadline to fire")
+        } catch {
+            let waited = Date().timeIntervalSince(started)
+            XCTAssertLessThan(waited, 5, "the call hung for \(waited)s — the timeout is inert")
+        }
+        await client.shutdown()
+    }
+
+    /// Writing to a server that has already exited used to raise SIGPIPE and
+    /// kill the whole process. If that regresses, this test crashes the runner
+    /// rather than failing — which is exactly the signal we want.
+    func testWritingToADeadServerThrowsInsteadOfKillingTheProcess() async throws {
+        let path = try server(handshake + "\nexit 0")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let client = try MCPClient(command: path,
+                                   timeouts: .init(handshake: 5, call: 2))
+        try await client.initialize()
+        try? await Task.sleep(nanoseconds: 300_000_000) // let it exit
+
+        do {
+            _ = try await client.callTool(name: "gone", argumentsJSON: "{}")
+            XCTFail("expected an error from the dead transport")
+        } catch {
+            // Any thrown error is fine; the point is that we're still alive.
+        }
+        await client.shutdown()
+    }
+
+    /// Two overlapping calls must not interleave their reads. Before the fix
+    /// each caller could receive a payload spliced from both replies.
+    func testConcurrentCallsAreSerializedAndDoNotSplice() async throws {
+        // Echoes the request id back inside the tool result, so a spliced or
+        // misrouted reply is detectable.
+        let path = try server(handshake + """
+
+        while read line; do
+          id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9]*\\).*/\\1/p')
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"reply-%s"}],"isError":false}}\\n' "$id" "$id"
+        done
+        """)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let client = try MCPClient(command: path,
+                                   timeouts: .init(handshake: 5, call: 10))
+        try await client.initialize()
+
+        async let a = client.callTool(name: "a", argumentsJSON: "{}")
+        async let b = client.callTool(name: "b", argumentsJSON: "{}")
+        let results = try await [a.content, b.content]
+
+        // Each reply is whole, well-formed, and distinct.
+        for text in results {
+            XCTAssertTrue(text.hasPrefix("reply-"), "spliced or empty payload: \(text)")
+        }
+        XCTAssertEqual(Set(results).count, 2, "both calls got the same reply: \(results)")
+        await client.shutdown()
     }
 }
