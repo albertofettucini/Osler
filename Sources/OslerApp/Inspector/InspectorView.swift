@@ -231,18 +231,22 @@ struct InspectorView: View {
                         ProgressView().controlSize(.small).scaleEffect(0.6)
                     }
                     Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(output, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(width: 24, height: 22)
-                            .contentShape(Rectangle())
+                    // Nothing to copy when a cut-off answer is empty, and
+                    // copying "" would wipe the user's clipboard.
+                    if !output.isEmpty {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(output, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(width: 24, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(HoverRowStyle())
+                        .help("Copy the full output")
                     }
-                    .buttonStyle(HoverRowStyle())
-                    .help("Copy the full output")
                 }
                 if let limit = cutOffLimit {
                     Label("Cut off at \(limit) tokens. Raise Max tokens to get the rest.",
