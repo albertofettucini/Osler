@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="Osler"
 BUNDLE_ID="com.osler.app"
-VERSION="1.1.0"
+VERSION="1.1.1"
 # Sparkle: where the app looks for new versions, and the key that proves an
 # update really came from this project. The private half lives only in the
 # maintainer's Keychain — see scripts/make-release.sh.
