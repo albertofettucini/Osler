@@ -5,5 +5,16 @@
     <link>https://raw.githubusercontent.com/albertofettucini/Osler/main/appcast.xml</link>
     <description>Updates for Osler.</description>
     <language>en</language>
+    <item>
+      <title>1.1.1</title>
+      <pubDate>Wed, 14 Oct 2026 20:56:06 +0000</pubDate>
+      <sparkle:version>1.1.1</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p><b>Osler 1.1.1</b> fixes updates and ships the fixes that were waiting on them.</p><ul><li>Updates install properly now.</li><li>A stuck or crashed MCP server can't hang a run or take Osler down, and the canvas tells you when one didn't start.</li><li>An answer stopped by Max tokens is marked “Cut off” instead of looking finished.</li><li>New nodes use the provider you have set up, and double-click no longer deletes a node unless you turn that on.</li></ul><p>After this update macOS may ask once whether Osler can use the keys in your Keychain. Click <b>Always Allow</b>.</p>]]></description>
+      <enclosure url="https://github.com/albertofettucini/Osler/releases/download/v1.1.1/Osler-1.1.1.zip"
+                 type="application/octet-stream"
+                 sparkle:edSignature="FGRbdZPFsJmBoo2N4ZKsoKmZ8VWbwtZ9TMfVEb2DNdqNWyb29B06AfWG3nP301jmqF/M3zPaJIC0E4WttdX4Dw==" length="3591065" />
+    </item>
   </channel>
 </rss>
