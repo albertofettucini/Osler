@@ -93,16 +93,23 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Set when the Keychain refused a write, so the UI can stop claiming the
-    /// key is stored when it isn't.
-    @Published private(set) var keychainError: String?
+    /// Providers whose last Keychain write was refused, with the message to
+    /// show, so the UI can stop claiming a key is stored when it isn't.
+    /// Scoped per provider: a successful write for one provider used to
+    /// clear the error another provider's refused write had set.
+    @Published private(set) var keychainErrors: [ProviderID: String] = [:]
 
     private func persist(_ value: String, for provider: ProviderID) {
         guard !isLoading else { return }
         let ok = Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines),
                               account: provider.rawValue)
-        keychainError = ok ? nil
+        keychainErrors[provider] = ok ? nil
             : "macOS wouldn't let Osler save the \(provider.displayName) key to your Keychain. It won't persist."
+    }
+
+    /// The refused-write message for this provider, if its last write failed.
+    func keychainError(for provider: ProviderID) -> String? {
+        keychainErrors[provider]
     }
 
     func key(for provider: ProviderID) -> String {

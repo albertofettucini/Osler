@@ -220,15 +220,31 @@ struct SettingsView: View {
                    placeholder: "sk-ant-…",
                    help: "console.anthropic.com",
                    text: $settings.anthropicKey,
-                   isSet: settings.hasKey(for: .anthropic))
+                   isSet: settings.hasKey(for: .anthropic),
+                   notSaved: settings.keychainError(for: .anthropic) != nil)
             rowDivider
             keyRow(title: "OpenAI",
                    placeholder: "sk-…",
                    help: "platform.openai.com",
                    text: $settings.openAIKey,
-                   isSet: settings.hasKey(for: .openai))
+                   isSet: settings.hasKey(for: .openai),
+                   notSaved: settings.keychainError(for: .openai) != nil)
             rowDivider
             ollamaRow
+        }
+
+        // A refused Keychain write: the key works for this session only.
+        ForEach(ProviderID.allCases.filter { settings.keychainError(for: $0) != nil }, id: \.self) { provider in
+            Label {
+                Text(settings.keychainError(for: provider) ?? "")
+                    .font(.oslerBody(10.5))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.oslerBody(10.5))
+                    .foregroundStyle(Theme.error)
+            }
         }
 
         Label("No telemetry — nothing leaves your Mac except the API calls you run.",
@@ -419,13 +435,22 @@ struct SettingsView: View {
     }
 
     private func keyRow(title: String, placeholder: String, help: String,
-                        text: Binding<String>, isSet: Bool) -> some View {
+                        text: Binding<String>, isSet: Bool, notSaved: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(title)
                     .font(.oslerBody(12.5, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                if isSet {
+                if notSaved {
+                    // The Keychain refused the last write: the key in the
+                    // field won't be there next launch, so it isn't ACTIVE.
+                    Text("NOT SAVED")
+                        .font(.oslerLabel(8.5, weight: .semibold))
+                        .kerning(1)
+                        .foregroundStyle(Theme.error)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.surfaceContainerHigh))
+                } else if isSet {
                     Text("ACTIVE")
                         .font(.oslerLabel(8.5, weight: .semibold))
                         .kerning(1)
