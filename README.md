@@ -1,11 +1,16 @@
 # Osler
 
-Design AI agent workflows on a canvas, on your Mac. Drop nodes, wire them into
-a flow, hit Run — the graph executes and every node's output streams in live.
+Draw the steps once. Osler runs them the same way every time.
 
-No Docker, no web stack, no account, no subscription, no telemetry. Everything
-runs on your machine and everything stays there. With [Ollama](https://ollama.com)
-it runs without an API key at all.
+Osler is a Mac app for small AI jobs you already know how to do: summarize
+this, check that, draft the reply. You lay the steps out as nodes on a canvas,
+press Run, and watch every step's output stream in. Next time it runs the same
+steps, in the same order, with the model you picked for each one. The models
+still write their own words. The recipe doesn't drift.
+
+Claude, GPT and local models through [Ollama](https://ollama.com) can share one
+flow. There's nothing to host: no account, no cloud service, no open port, no
+telemetry. Your flows are plain files on your Mac.
 
 ![Osler canvas](docs/screenshot.png)
 
@@ -29,14 +34,16 @@ condition didn't take is marked skipped rather than silently dropped.
 ## Why so few nodes?
 
 Because the vocabulary is small, not the ceiling. An Agent reaches anything
-through MCP tools, `{{Node name}}` reaches any value upstream, and iteration is
-coming as a node that loops inside itself rather than a cycle on the canvas.
+through MCP tools, and `{{Node name}}` reaches any value upstream. Four kinds of
+node means you can read a whole flow at a glance.
 
-Hosted builders solve a different problem — they're infrastructure for
-companies shipping products, with evals, tracing and one-click deployment, and
-they run that vendor's models. Osler is a Mac app for one person's work. It can
-run Claude, GPT and a local model in the same flow, offline if you want, with
-no account to make.
+## Why not just ask Claude?
+
+Ask Claude when you want it to figure things out. Use Osler when you already
+know the steps and want them done the same way on Tuesday as on Monday: same
+prompts, same order, same checks, and every step's output there to read
+afterwards. Each step can use a different model, including one running on your
+own Mac.
 
 ## Reaching sideways
 
@@ -69,8 +76,8 @@ Agent node. The agent decides when to call what; each call shows up in the
 node's output as it happens.
 
 Today Osler speaks to stdio servers only, and a tool-enabled agent answers turn
-by turn instead of streaming live. Tool calls run without an approval step —
-an Approval node is next on the [roadmap](ROADMAP.md).
+by turn instead of streaming live. For now, tool calls run without asking you
+first. Asking before each call is next on the [roadmap](ROADMAP.md).
 
 ## Models
 
@@ -170,8 +177,8 @@ wash and card tint in Settings.
 **`Osler`** is the SwiftUI app — canvas, inspector, run controller — bound to
 the engine's event stream. **`osler-cli`** runs flows headlessly.
 
-64 tests cover the engine, including a real subprocess round-trip against a
-scripted MCP server.
+`swift test` runs 102 engine tests, including a real subprocess round-trip
+against a scripted MCP server.
 
 ## License
 
