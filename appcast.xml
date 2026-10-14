@@ -5,16 +5,5 @@
     <link>https://raw.githubusercontent.com/albertofettucini/Osler/main/appcast.xml</link>
     <description>Updates for Osler.</description>
     <language>en</language>
-    <item>
-      <title>1.1.0</title>
-      <pubDate>Tue, 18 Aug 2026 21:40:54 +0000</pubDate>
-      <sparkle:version>1.1.0</sparkle:version>
-      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[First public release. Four node types, MCP tools, and local models via Ollama.]]></description>
-      <enclosure url="https://github.com/albertofettucini/Osler/releases/download/v1.1.0/Osler-1.1.0.zip"
-                 type="application/octet-stream"
-                 sparkle:edSignature="mSVx6uUdVrht89hqqXi5waWi2GbHMexwfDoXuL2aEqu5MZ7WdOzu7EyN84ReMka+tRqz6Fo5C6yNRCiKJUodBw==" length="3623098" />
-    </item>
   </channel>
 </rss>
