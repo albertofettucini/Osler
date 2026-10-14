@@ -37,9 +37,9 @@ struct WiresLayer: View, Animatable {
         // Pixel-aligned exactly as the cards' `.offset` is rendered, so wire
         // ends land on the port dots to the device pixel.
         let transform = CanvasTransform(scale: scale, offset: offset)
-            .pixelAligned(displayScale: displayScale)
+            .drawingTransform(displayScale: displayScale)
         Canvas { context, _ in
-            context.concatenate(transform.affine)
+            context.concatenate(transform)
 
             let nodesByID = Dictionary(editor.graph.nodes.map { ($0.id, $0) },
                                        uniquingKeysWith: { first, _ in first })

@@ -147,6 +147,16 @@ final class CanvasTransformTests: XCTestCase {
         XCTAssertEqual(t.pixelAligned(displayScale: 0), t)
     }
 
+    func testDrawingTransformIsThePixelAlignedAffine() {
+        let t = CanvasTransform(scale: 0.73, offset: CGSize(width: -91.75, height: 13.1))
+        let drawing = t.drawingTransform(displayScale: 2)
+        XCTAssertEqual(drawing, t.pixelAligned(displayScale: 2).affine)
+        XCTAssertEqual(drawing.tx, -91.5)
+        XCTAssertEqual(drawing.ty, 13.0)
+        XCTAssertEqual(drawing.a, 0.73)
+        XCTAssertEqual(drawing.d, 0.73)
+    }
+
     func testZoomMatchesLegacyAndKeepsAnchorFixed() {
         for _ in 0..<500 {
             let t = randomTransform()

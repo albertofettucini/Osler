@@ -82,7 +82,7 @@ final class WireRenderingParityTests: XCTestCase {
             ZStack(alignment: .topLeading) {
                 Color.white
                 Canvas { context, _ in
-                    context.concatenate(transform.pixelAligned(displayScale: displayScale).affine)
+                    context.concatenate(transform.drawingTransform(displayScale: displayScale))
                     WireRenderingParityTests.drawWires(context)
                 }
                 .frame(width: viewport.width, height: viewport.height)

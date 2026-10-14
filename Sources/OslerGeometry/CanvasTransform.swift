@@ -58,6 +58,14 @@ public struct CanvasTransform: Equatable, Sendable {
                                offset: CGSize(width: snap(offset.width), height: snap(offset.height)))
     }
 
+    /// What a screen-space `Canvas` concatenates to draw world-space paths
+    /// where the node layer shows them: the pixel-aligned affine. The wire
+    /// layer and its parity test both draw through this one function, so the
+    /// test covers the shipped transform, not a copy of it.
+    public func drawingTransform(displayScale: CGFloat) -> CGAffineTransform {
+        pixelAligned(displayScale: displayScale).affine
+    }
+
     /// Zooms about a fixed screen point: the world point under `anchor` stays
     /// under it. The new scale is clamped to `zoomLimits`.
     public func zoomed(by factor: CGFloat, around anchor: CGPoint) -> CanvasTransform {
