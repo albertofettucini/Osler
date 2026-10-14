@@ -81,7 +81,7 @@ need_gh() {
 
 # ── The archive and installer to check ──────────────────────────────────────
 if [ "$LOCAL" = 1 ]; then
-  section "Checking the local files in dist/ (nothing is downloaded)"
+  section "Checking the local files in dist/ (nothing of this release is downloaded)"
   ZIP="$DIST_ZIP"
   DMG="$DIST_DMG"
   [ -f "$ZIP" ] || fatal "$ZIP is missing — run ./scripts/make-release.sh $VERSION first."
@@ -114,6 +114,7 @@ ZIP_LENGTH="$(stat -f %z "$ZIP")"
 section "Finding the signing key of the release before v$VERSION"
 PREV_SOURCE="$PREVIOUS"
 if [ -z "$PREV_SOURCE" ]; then
+  echo "  · Downloading the previous release's zip to read its key (pass --previous <zip|app> to skip this)"
   need_gh "find the previous release"
   PREV_TAG="$(gh release list -R "$REPO" --limit 50 --exclude-drafts --exclude-pre-releases \
     --json tagName --jq '.[].tagName' | grep -vxF "v$VERSION" | head -1 || true)"
@@ -172,6 +173,8 @@ else
 fi
 
 # ── The apps inside ─────────────────────────────────────────────────────────
+record_value() { [ -f "$RECORD" ] && awk -v k="$1" '$1 == k { print $2 }' "$RECORD" || true; }
+R_SPARKLE="$(record_value sparkle)"
 check_app() {
   local LABEL="$1" APP="$2"
   if [ ! -d "$APP" ]; then
@@ -196,6 +199,12 @@ check_app() {
   else
     bad "$LABEL: strict code signature fails: $(tr '\n' ' ' < "$WORK/codesign.err")"
   fi
+  if [ -n "$R_SPARKLE" ]; then
+    local SPARKLE_PLIST="$APP/Contents/Frameworks/Sparkle.framework/Resources/Info.plist" APP_SPARKLE
+    APP_SPARKLE="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$SPARKLE_PLIST" 2>/dev/null || true)"
+    [ "$APP_SPARKLE" = "$R_SPARKLE" ] && ok "$LABEL: Sparkle $APP_SPARKLE, as recorded" \
+      || bad "$LABEL: embeds Sparkle \"$APP_SPARKLE\", but the build recorded $R_SPARKLE"
+  fi
   DIRT="$(xattr -r "$APP" 2>/dev/null | grep -E 'com\.apple\.(FinderInfo|ResourceFork|fileprovider)' || true)"
   if [ -z "$DIRT" ]; then
     ok "$LABEL: no FinderInfo, resource fork or fileprovider attributes"
@@ -203,10 +212,12 @@ check_app() {
     bad "$LABEL: $(echo "$DIRT" | wc -l | tr -d ' ') stray attributes, e.g. $(echo "$DIRT" | head -1)"
   fi
 }
-cdhash() { codesign -dv --verbose=4 "$1" 2>&1 | sed -n 's/^CDHash=//p'; }
+# `|| true` throughout: under set -e a failing substitution would end the
+# script silently instead of reporting the failure below.
+cdhash() { codesign -dv --verbose=4 "$1" 2>&1 | sed -n 's/^CDHash=//p' || true; }
 
 section "Checking the app in the zip (extracted with ditto, as Sparkle does)"
-TOP="$(zipinfo -1 "$ZIP" 2>/dev/null | cut -d / -f 1 | sort -u | tr '\n' ' ')"
+TOP="$(zipinfo -1 "$ZIP" 2>/dev/null | cut -d / -f 1 | sort -u | tr '\n' ' ' || true)"
 [ "$TOP" = "Osler.app " ] && ok "the zip holds Osler.app and nothing else" \
   || bad "the zip's top level is \"$TOP\", expected just Osler.app"
 mkdir -p "$WORK/zip"
@@ -244,7 +255,19 @@ if [ ! -f "$RECORD" ]; then
 else
   R_HEAD="$(awk '$1 == "head" { print $2 }' "$RECORD")"
   R_DIFF="$(awk '$1 == "diff-sha256" { print $2 }' "$RECORD")"
-  if [ "$LOCAL" = 1 ]; then
+  R_RESOLVED="$(record_value resolved-sha256)"
+  if [ -z "$R_SPARKLE" ] || [ -z "$R_RESOLVED" ]; then
+    bad "$RECORD doesn't say which Sparkle was built in; rebuild with ./scripts/make-release.sh $VERSION"
+  elif [ ! -f Package.resolved ]; then
+    bad "Package.resolved is missing, so the Sparkle that was built in can't be confirmed"
+  elif [ "$(sha Package.resolved)" = "$R_RESOLVED" ]; then
+    ok "Package.resolved is the one the build used (Sparkle $R_SPARKLE)"
+  else
+    bad "Package.resolved changed since the build (Sparkle $R_SPARKLE was built in); rebuild"
+  fi
+  if [ -z "$R_HEAD" ] || [ -z "$R_DIFF" ]; then
+    bad "$RECORD has no head or diff-sha256 line"
+  elif [ "$LOCAL" = 1 ]; then
     # Before the release commit: the tree must be exactly what was built.
     NOW_HEAD="$(git rev-parse HEAD)"
     NOW_DIFF="$(git diff HEAD --binary | shasum -a 256 | cut -d " " -f 1)"
@@ -255,13 +278,15 @@ else
     UNTRACKED="$(git ls-files --others --exclude-standard)"
     [ -z "$UNTRACKED" ] && ok "no untracked files" \
       || bad "untracked files the build record can't cover: $(echo "$UNTRACKED" | tr '\n' ' ')"
-  elif git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+  elif ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+    bad "there's no local tag v$VERSION to compare with the build"
+  elif ! git cat-file -e "$R_HEAD^{commit}" 2>/dev/null; then
+    bad "the build was made from $R_HEAD, which this repo doesn't have"
+  else
     # After it: the tag must hold exactly the built tree.
-    TAG_DIFF="$(git diff "$R_HEAD" "v$VERSION" --binary 2>/dev/null | shasum -a 256 | cut -d " " -f 1)"
+    TAG_DIFF="$(git diff "$R_HEAD" "v$VERSION" --binary 2>/dev/null | shasum -a 256 | cut -d " " -f 1 || true)"
     [ "$TAG_DIFF" = "$R_DIFF" ] && ok "tag v$VERSION holds exactly the tree that was built" \
       || bad "tag v$VERSION doesn't hold the tree that was built (from $R_HEAD plus the recorded diff)"
-  else
-    bad "there's no local tag v$VERSION to compare with the build"
   fi
 fi
 

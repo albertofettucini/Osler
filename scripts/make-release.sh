@@ -210,6 +210,15 @@ fi
 # ── What it was built from ──────────────────────────────────────────────────
 ZIP_SHA="$(shasum -a 256 "$ZIP" | cut -d " " -f 1)"
 DMG_SHA="$(shasum -a 256 "$DMG" | cut -d " " -f 1)"
+# Package.resolved is git-ignored, so the Sparkle that went in is recorded
+# here; verify-release checks it against the apps and the resolved file.
+SPARKLE_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+  "$CLEAN/Contents/Frameworks/Sparkle.framework/Resources/Info.plist" 2>/dev/null || true)"
+if [ -z "$SPARKLE_VERSION" ] || [ ! -f Package.resolved ]; then
+  echo "✗ Couldn't tell which Sparkle was built in (no Package.resolved or no Sparkle.framework version)." >&2
+  exit 1
+fi
+RESOLVED_SHA="$(shasum -a 256 Package.resolved | cut -d " " -f 1)"
 BUILT_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 cat > "$RECORD" <<TXT
 # Osler $VERSION was built from this commit plus this working-tree diff.
@@ -222,6 +231,8 @@ head $BUILT_FROM
 diff-sha256 $BUILT_DIFF
 zip-sha256 $ZIP_SHA
 dmg-sha256 $DMG_SHA
+sparkle $SPARKLE_VERSION
+resolved-sha256 $RESOLVED_SHA
 built $BUILT_AT
 TXT
 
