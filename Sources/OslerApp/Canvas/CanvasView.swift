@@ -1,5 +1,6 @@
 import SwiftUI
 import OslerEngine
+import OslerGeometry
 
 /// The node canvas: a pan/zoom viewport over a large world in which nodes live.
 /// Empty space pans; nodes drag; output ports wire. Built from scratch — no
@@ -27,10 +28,7 @@ struct CanvasView: View {
                     .fill(Theme.canvas)
                     .background(ScrollPanCatcher(
                         onScroll: { delta in
-                            editor.offset = CGSize(
-                                width: editor.offset.width + delta.width,
-                                height: editor.offset.height + delta.height
-                            )
+                            editor.viewport.pan(by: delta)
                         },
                         onMouseDown: { point, modifiers in
                             // Instant selection at mouse-down: pure observation,
@@ -59,13 +57,20 @@ struct CanvasView: View {
                         handleCanvasTap(at: location)
                     }
 
-                GridBackground(scale: editor.scale, offset: editor.offset)
-                    .allowsHitTesting(false)
+                // Everything that follows the pan/zoom reads the viewport in
+                // its OWN body (ViewportReader / ViewportTransformed), never in
+                // this one — so a pan tick re-evaluates those few wrappers
+                // instead of the whole canvas and every card in it.
+                ViewportReader(viewport: editor.viewport) { transform in
+                    GridBackground(scale: transform.scale, offset: transform.offset)
+                }
+                .allowsHitTesting(false)
 
-                worldContainer
-                    .frame(width: worldSize.width, height: worldSize.height, alignment: .topLeading)
-                    .scaleEffect(editor.scale, anchor: .topLeading)
-                    .offset(editor.offset)
+                ViewportTransformed(
+                    viewport: editor.viewport,
+                    content: worldContainer
+                        .frame(width: worldSize.width, height: worldSize.height, alignment: .topLeading)
+                )
 
                 // Shift+drag rubber band.
                 if let rect = marqueeRect {
@@ -280,7 +285,7 @@ struct CanvasView: View {
                     if NSEvent.modifierFlags.contains(.shift) {
                         marqueeStart = value.startLocation
                     } else {
-                        panStart = editor.offset
+                        panStart = editor.viewport.offset
                     }
                 }
                 if let start = marqueeStart {
@@ -291,8 +296,8 @@ struct CanvasView: View {
                     marqueeRect = rect
                     selectMarquee(rect)
                 } else if let start = panStart {
-                    editor.offset = CGSize(width: start.width + value.translation.width,
-                                           height: start.height + value.translation.height)
+                    editor.viewport.setOffset(CGSize(width: start.width + value.translation.width,
+                                                     height: start.height + value.translation.height))
                 }
             }
             .onEnded { _ in
@@ -392,26 +397,44 @@ struct CanvasView: View {
 
         let nodes = editor.graph.nodes
         guard !nodes.isEmpty else {
-            editor.scale = 1; editor.offset = .zero; return true
+            editor.viewport.transform = .identity; return true
         }
         let minX = nodes.map(\.position.x).min()!
         let minY = nodes.map(\.position.y).min()!
         let maxX = nodes.map { $0.position.x + NodeGeometry.width }.max()!
         let maxY = nodes.map { $0.position.y + NodeGeometry.height }.max()!
-        let contentW = max(maxX - minX, 1), contentH = max(maxY - minY, 1)
-        // Padding shrinks with the viewport so the usable area is never
-        // negative in a narrow window.
-        let padding = min(80, min(viewSize.width, viewSize.height) / 5)
-        let usable = CGSize(width: max(viewSize.width - padding * 2, 1),
-                            height: max(viewSize.height - padding * 2, 1))
-        let scale = min(min(usable.width / contentW, usable.height / contentH), 1.5)
-        editor.scale = max(0.3, scale)
-        // Center the content bounding box in the viewport.
-        editor.offset = CGSize(
-            width: viewSize.width / 2 - (minX + contentW / 2) * editor.scale,
-            height: viewSize.height / 2 - (minY + contentH / 2) * editor.scale
-        )
+        // Centred, padded, scale 0.3...1.5 (see CanvasTransform.fitting).
+        guard let fit = CanvasTransform.fitting(
+            CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY), in: viewSize
+        ) else { return false }
+        editor.viewport.transform = fit
         return true
+    }
+}
+
+/// Hands the live transform to `content`. The viewport is read in THIS body,
+/// so a pan re-evaluates just this wrapper and what it builds — not the
+/// CanvasView that contains it.
+private struct ViewportReader<Content: View>: View {
+    let viewport: CanvasViewport
+    @ViewBuilder let content: (CanvasTransform) -> Content
+
+    var body: some View {
+        content(viewport.transform)
+    }
+}
+
+/// Applies the pan/zoom to an already-built layer (the node cards). The
+/// layer is passed in as a value, so a pan tick only changes the two render
+/// transforms here; the cards' own bodies are not re-evaluated.
+private struct ViewportTransformed<Content: View>: View {
+    let viewport: CanvasViewport
+    let content: Content
+
+    var body: some View {
+        content
+            .scaleEffect(viewport.scale, anchor: .topLeading)
+            .offset(viewport.offset)
     }
 }
 

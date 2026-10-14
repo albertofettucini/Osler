@@ -1,5 +1,6 @@
 import SwiftUI
 import OslerEngine
+import OslerGeometry
 
 /// One node card on the canvas: header, a live body preview, and its ports.
 /// Owns two gestures — drag the body to move the node, drag an output port to
@@ -295,7 +296,9 @@ struct NodeView: View {
         // The inset is in world units but hit-testing happens after the zoom
         // transform — divide by scale so the grab target keeps a constant
         // screen size instead of shrinking to a pixel hunt when zoomed out.
-        .contentShape(Circle().inset(by: -12 / editor.scale))
+        // Reads only the viewport's scale, so a zoom refreshes the halo but a
+        // pan does not re-render the card.
+        .contentShape(Circle().inset(by: -12 / editor.viewport.scale))
     }
 
     // MARK: Gestures

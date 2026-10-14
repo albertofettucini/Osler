@@ -1,5 +1,6 @@
 import SwiftUI
 import OslerEngine
+import OslerGeometry
 import UniformTypeIdentifiers
 
 extension UTType {
@@ -44,9 +45,21 @@ final class FlowEditor: ObservableObject {
         set { selectedIDs = newValue.map { [$0] } ?? [] }
     }
 
-    // Canvas transform (world → screen: point * scale + offset).
-    @Published var scale: CGFloat = 1
-    @Published var offset: CGSize = .zero
+    /// Canvas pan/zoom (world → screen: point * scale + offset). Deliberately
+    /// NOT @Published here: a pan tick fires dozens of times a second, and
+    /// through this object's objectWillChange it re-rendered every view that
+    /// observes the editor (each node card, the inspector, the library, the
+    /// menu commands). The viewport is @Observable on its own, so only the
+    /// layers that read it in their body — the transformed node layer, the
+    /// grid, the wires — follow a pan. Panning never touches `graph`, so it
+    /// never marks the document dirty or records an undo step.
+    let viewport = CanvasViewport()
+
+    /// Gesture-time reads of the transform. A view BODY that reads these
+    /// still tracks the viewport (Observation follows the access), but prefer
+    /// `viewport.scale` / `viewport.offset` there so the dependency is visible.
+    var scale: CGFloat { viewport.scale }
+    var offset: CGSize { viewport.offset }
 
     // Transient wire drag.
     @Published var pendingWire: PendingWire?
@@ -368,19 +381,16 @@ final class FlowEditor: ObservableObject {
     // MARK: Transform helpers
 
     func worldToScreen(_ point: Point) -> CGPoint {
-        CGPoint(x: point.x * scale + offset.width, y: point.y * scale + offset.height)
+        viewport.worldToScreen(CGPoint(x: point.x, y: point.y))
     }
 
     func screenToWorld(_ point: CGPoint) -> CGPoint {
-        CGPoint(x: (point.x - offset.width) / scale, y: (point.y - offset.height) / scale)
+        viewport.screenToWorld(point)
     }
 
+    /// Keeps the point under `anchor` fixed while zooming (clamped 0.3...2.5).
     func zoom(by factor: CGFloat, around anchor: CGPoint) {
-        let newScale = min(max(scale * factor, 0.3), 2.5)
-        // Keep the point under `anchor` fixed while zooming.
-        let world = screenToWorld(anchor)
-        scale = newScale
-        offset = CGSize(width: anchor.x - world.x * scale, height: anchor.y - world.y * scale)
+        viewport.zoom(by: factor, around: anchor)
     }
 
     // MARK: Starter content
