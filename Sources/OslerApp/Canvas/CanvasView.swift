@@ -179,7 +179,8 @@ struct CanvasView: View {
     private func addNode(_ kind: NodeKind, centeredAt screenPoint: CGPoint) {
         let world = editor.screenToWorld(screenPoint)
         editor.addNode(kind, at: CGPoint(x: world.x - NodeGeometry.width / 2,
-                                         y: world.y - NodeGeometry.height / 2))
+                                         y: world.y - NodeGeometry.height / 2),
+                       context: settings.templateContext)
     }
 
     // MARK: Empty state

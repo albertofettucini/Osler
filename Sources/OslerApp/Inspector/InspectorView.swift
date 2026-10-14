@@ -394,6 +394,7 @@ private struct IdentityHeader: View {
 private struct ConditionEditorView: View {
     let node: Node
     @EnvironmentObject var editor: FlowEditor
+    @EnvironmentObject var settings: SettingsStore
 
     @State private var lastProvider: ProviderID = .anthropic
     @State private var lastModel = AgentConfig.defaultAnthropicModel
@@ -477,7 +478,17 @@ private struct ConditionEditorView: View {
                 }
             }
         }
-        .onAppear { rememberLLMSettings() }
+        .onAppear {
+            // A keyword rule has no LLM settings of its own yet: switching it
+            // to "Ask an LLM" should start from the user's setup, not
+            // Anthropic on a keyless Mac. An existing LLM rule keeps its own.
+            if case .condition(.containsKeyword) = node.config {
+                let context = settings.templateContext
+                lastProvider = context.provider
+                lastModel = context.model
+            }
+            rememberLLMSettings()
+        }
         .onChange(of: node.config) { _, _ in rememberLLMSettings() }
     }
 

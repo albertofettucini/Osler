@@ -151,11 +151,14 @@ final class FlowEditor: ObservableObject {
 
     // MARK: Node mutations
 
-    func addNode(_ kind: NodeKind, at world: CGPoint) {
+    /// `context` is the user's setup (SettingsStore.templateContext): a new
+    /// Agent used to be Anthropic on every Mac, so a keyless user's first
+    /// Agent blocked Run until they found the provider picker.
+    func addNode(_ kind: NodeKind, at world: CGPoint, context: TemplateContext) {
         let config: NodeConfig
         switch kind {
         case .input: config = .input(text: "")
-        case .agent: config = .agent(AgentConfig())
+        case .agent: config = .agent(AgentConfig(provider: context.provider, model: context.model))
         case .condition: config = .condition(.containsKeyword(""))
         case .output: config = .output
         case .unknown: return

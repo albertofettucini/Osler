@@ -190,7 +190,8 @@ struct LibraryPanel: View {
     /// on the exact same spot.
     private func addCascaded(_ kind: NodeKind) {
         let step = CGFloat(editor.graph.nodes.count % 6) * 28
-        editor.addNode(kind, at: editor.screenToWorld(CGPoint(x: 280 + step, y: 180 + step)))
+        editor.addNode(kind, at: editor.screenToWorld(CGPoint(x: 280 + step, y: 180 + step)),
+                       context: settings.templateContext)
     }
 
     private func nodeRow(_ kind: NodeKind, _ subtitle: String) -> some View {

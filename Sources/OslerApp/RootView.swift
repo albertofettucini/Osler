@@ -103,7 +103,8 @@ struct RootView: View {
             ) {
                 appState.screen = .builder
                 let step = CGFloat(editor.graph.nodes.count % 6) * 28
-                editor.addNode(kind, at: editor.screenToWorld(CGPoint(x: 320 + step, y: 220 + step)))
+                editor.addNode(kind, at: editor.screenToWorld(CGPoint(x: 320 + step, y: 220 + step)),
+                               context: settings.templateContext)
             })
         }
 
