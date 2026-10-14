@@ -36,6 +36,26 @@ mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources" "$STAGE/Contents/Fr
 # -X: drop extended attributes already present on the built binary.
 cp -X "$BUILD_DIR/Osler" "$STAGE/Contents/MacOS/$APP_NAME"
 
+# ── Linked-SDK stamp ────────────────────────────────────────────────────────
+# `swift build` under Xcode 27 records the deployment target as the SDK the
+# binary was built against (sdk 14.0 instead of 27.0). macOS then treats the
+# app as built for an old SDK and keeps it on older compatibility paths — on
+# macOS 27 that made dragging the canvas stutter. Same binary, stamp alone
+# changed: sdk 14.0 stutters, sdk 27.0 is smooth. Stamp the real SDK, and stop
+# if the stamp didn't take.
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+MIN_OS="$(vtool -show-build "$STAGE/Contents/MacOS/$APP_NAME" | awk '$1 == "minos" { print $2; exit }')"
+vtool -set-build-version macos "$MIN_OS" "$SDK_VERSION" -replace \
+  -output "$STAGE/Contents/MacOS/$APP_NAME.stamped" "$STAGE/Contents/MacOS/$APP_NAME" 2>/dev/null
+mv "$STAGE/Contents/MacOS/$APP_NAME.stamped" "$STAGE/Contents/MacOS/$APP_NAME"
+chmod +x "$STAGE/Contents/MacOS/$APP_NAME"
+STAMPED_SDK="$(vtool -show-build "$STAGE/Contents/MacOS/$APP_NAME" | awk '$1 == "sdk" { print $2; exit }')"
+if [ "$STAMPED_SDK" != "$SDK_VERSION" ]; then
+  echo "✗ Linked-SDK stamp is '$STAMPED_SDK', expected '$SDK_VERSION'." >&2
+  exit 1
+fi
+echo "▸ Linked-SDK stamp: macOS $SDK_VERSION (minimum $MIN_OS)"
+
 # ── Sparkle ─────────────────────────────────────────────────────────────────
 # SwiftPM links the framework but never embeds it, so a bundle built this way
 # would die at launch with a dyld error. Copy it in and teach the executable
