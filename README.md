@@ -134,7 +134,7 @@ And to produce the app bundle itself:
 Other targets:
 
 ```sh
-swift test                          # engine tests
+swift test                          # engine + canvas geometry tests
 swift run osler-cli --demo linear   # headless run (uses Ollama when no key is set)
 swift run osler-cli --demo tools    # MCP tool loop against a mock server
 swift run osler-cli --demo cycle    # cycle detection, no model needed

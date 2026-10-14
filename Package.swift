@@ -19,11 +19,15 @@ let package = Package(
     ],
     targets: [
         .target(name: "OslerEngine"),
+        // Canvas pan/zoom math and state — no UI, no engine. Outside the app
+        // target so the viewport is tested directly.
+        .target(name: "OslerGeometry"),
         .executableTarget(
             name: "OslerApp",
-            dependencies: ["OslerEngine", .product(name: "Sparkle", package: "Sparkle")]
+            dependencies: ["OslerEngine", "OslerGeometry", .product(name: "Sparkle", package: "Sparkle")]
         ),
         .executableTarget(name: "OslerCLI", dependencies: ["OslerEngine"]),
         .testTarget(name: "OslerEngineTests", dependencies: ["OslerEngine"]),
+        .testTarget(name: "OslerGeometryTests", dependencies: ["OslerGeometry"]),
     ]
 )
