@@ -44,6 +44,20 @@ public struct CanvasTransform: Equatable, Sendable {
         CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: offset.width, ty: offset.height)
     }
 
+    /// The transform as SwiftUI puts `.offset` on screen: the translation is
+    /// snapped to the device-pixel grid (round half up), the scale is not.
+    /// The node layer gets this snapping for free; a screen-space `Canvas`
+    /// drawing with the exact offset would sit up to half a pixel off the
+    /// ports, so it draws with this instead.
+    public func pixelAligned(displayScale: CGFloat) -> CanvasTransform {
+        guard displayScale > 0, displayScale.isFinite else { return self }
+        func snap(_ value: CGFloat) -> CGFloat {
+            (value * displayScale + 0.5).rounded(.down) / displayScale
+        }
+        return CanvasTransform(scale: scale,
+                               offset: CGSize(width: snap(offset.width), height: snap(offset.height)))
+    }
+
     /// Zooms about a fixed screen point: the world point under `anchor` stays
     /// under it. The new scale is clamped to `zoomLimits`.
     public func zoomed(by factor: CGFloat, around anchor: CGPoint) -> CanvasTransform {

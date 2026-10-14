@@ -1,15 +1,46 @@
 import SwiftUI
 import OslerEngine
+import OslerGeometry
 
 /// Draws every edge as a horizontal bezier between the exact port points, plus
 /// the in-progress wire the user is dragging. Purely visual — not hit-testable,
 /// so empty canvas space still pans.
-struct WiresLayer: View {
+///
+/// Drawn in SCREEN space: the canvas is only as big as the viewport, and the
+/// world → screen transform is applied inside it. It used to live inside the
+/// 6000×4000 world container under `.scaleEffect`, which made it a
+/// ~12000×8000 px layer re-rasterised on every pan tick. The transform is the
+/// same `CanvasTransform` the node layer's scaleEffect+offset draws (pixel
+/// snapping included), and the paths are still built in world units, so wires
+/// stay glued to the ports and strokes keep scaling with the zoom exactly as
+/// before.
+///
+/// Animatable like `GridBackground`, so a pan/zoom that happens inside an
+/// animation glides the wires together with the cards.
+struct WiresLayer: View, Animatable {
+    var scale: CGFloat
+    var offset: CGSize
+
     @EnvironmentObject var editor: FlowEditor
     @EnvironmentObject var run: RunController
+    @Environment(\.displayScale) private var displayScale
+
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
+        get { .init(scale, .init(offset.width, offset.height)) }
+        set {
+            scale = newValue.first
+            offset = CGSize(width: newValue.second.first, height: newValue.second.second)
+        }
+    }
 
     var body: some View {
+        // Pixel-aligned exactly as the cards' `.offset` is rendered, so wire
+        // ends land on the port dots to the device pixel.
+        let transform = CanvasTransform(scale: scale, offset: offset)
+            .pixelAligned(displayScale: displayScale)
         Canvas { context, _ in
+            context.concatenate(transform.affine)
+
             let nodesByID = Dictionary(editor.graph.nodes.map { ($0.id, $0) },
                                        uniquingKeysWith: { first, _ in first })
 

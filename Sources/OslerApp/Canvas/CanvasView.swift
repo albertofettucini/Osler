@@ -66,6 +66,14 @@ struct CanvasView: View {
                 }
                 .allowsHitTesting(false)
 
+                // Wires sit between the grid and the cards, drawn in screen
+                // space at viewport size (see WiresLayer) — not inside the
+                // 6000×4000 world container.
+                ViewportReader(viewport: editor.viewport) { transform in
+                    WiresLayer(scale: transform.scale, offset: transform.offset)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+
                 ViewportTransformed(
                     viewport: editor.viewport,
                     content: worldContainer
@@ -169,7 +177,6 @@ struct CanvasView: View {
 
     private var worldContainer: some View {
         ZStack(alignment: .topLeading) {
-            WiresLayer()
             ForEach(editor.graph.nodes) { node in
                 NodeView(node: node)
                     // The birth "pop" — only plays when the insertion itself

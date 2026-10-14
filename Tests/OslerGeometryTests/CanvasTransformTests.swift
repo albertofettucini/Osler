@@ -136,6 +136,17 @@ final class CanvasTransformTests: XCTestCase {
         }
     }
 
+    func testPixelAlignedSnapsOnlyTheTranslation() {
+        let t = CanvasTransform(scale: 1.37, offset: CGSize(width: 33.25, height: -91.75))
+        let retina = t.pixelAligned(displayScale: 2)
+        XCTAssertEqual(retina.scale, 1.37)
+        XCTAssertEqual(retina.offset, CGSize(width: 33.5, height: -91.5)) // half up, also below 0
+        XCTAssertEqual(t.pixelAligned(displayScale: 1).offset, CGSize(width: 33, height: -92))
+        let aligned = CanvasTransform(scale: 2, offset: CGSize(width: 10.5, height: -3))
+        XCTAssertEqual(aligned.pixelAligned(displayScale: 2), aligned)
+        XCTAssertEqual(t.pixelAligned(displayScale: 0), t)
+    }
+
     func testZoomMatchesLegacyAndKeepsAnchorFixed() {
         for _ in 0..<500 {
             let t = randomTransform()
