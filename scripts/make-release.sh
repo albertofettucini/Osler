@@ -242,7 +242,7 @@ echo "✓ $DMG"
 echo "✓ $FEED (points at $FEED_BASE/v$VERSION/)"
 echo "✓ $RECORD"
 echo
-echo "Next: test, gönder, commit + tag, gh release create, ./scripts/verify-release.sh $VERSION, then commit appcast.xml."
+echo "Next: test the build, commit + tag, gh release create, ./scripts/verify-release.sh $VERSION, then commit appcast.xml."
 echo
 echo "Nothing has been uploaded or tagged. By hand, in this order:"
 echo "  1. ./scripts/verify-release.sh $VERSION --local   (now, and again right before committing)"
