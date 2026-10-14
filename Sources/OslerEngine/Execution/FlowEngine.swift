@@ -19,6 +19,10 @@ public enum FlowEvent: Equatable, Sendable {
     /// A Condition node resolved: `tookYes` is the branch that carries the value.
     /// Lets a canvas highlight the taken edge.
     case conditionRouted(id: UUID, tookYes: Bool)
+    /// The agent's answer stopped at its Max tokens limit (`maxTokens`), so
+    /// its output is incomplete. Sent just before that node's `nodeFinished`;
+    /// the output is still passed on downstream.
+    case nodeCutOff(id: UUID, maxTokens: Int)
     case nodeFinished(id: UUID, output: String)
     /// The node sat on a branch the flow didn't take (or downstream of a failure).
     case nodeSkipped(id: UUID)
@@ -105,6 +109,8 @@ public struct FlowEngine: Sendable {
         var text: String
         /// Only set for condition nodes: which port carries the value onward.
         var decision: Bool?
+        /// Set when an agent's answer stopped at this Max tokens limit.
+        var cutOffAt: Int? = nil
     }
 
     private enum EdgeState {
@@ -227,6 +233,9 @@ public struct FlowEngine: Sendable {
                         summary.decisions[nodeID] = decision
                         emit(.conditionRouted(id: nodeID, tookYes: decision))
                     }
+                    if let limit = outcome.cutOffAt {
+                        emit(.nodeCutOff(id: nodeID, maxTokens: limit))
+                    }
                     emit(.nodeFinished(id: nodeID, output: outcome.text))
                     settleDownstream(of: node, outcome: outcome)
                 case .failure(let error):
@@ -294,14 +303,21 @@ public struct FlowEngine: Sendable {
             }
 
             var fullText = ""
-            for try await chunk in try await provider.streamText(request) {
+            var cutOff = false
+            for try await event in try await provider.streamEvents(request) {
                 // Cancellation here drops the stream iterator, which tears down
                 // the in-flight HTTP request instead of letting it run to end.
                 try Task.checkCancellation()
-                fullText += chunk
-                emit(.nodeDelta(id: node.id, text: chunk))
+                switch event {
+                case .text(let chunk):
+                    fullText += chunk
+                    emit(.nodeDelta(id: node.id, text: chunk))
+                case .cutOff:
+                    cutOff = true
+                }
             }
-            return NodeOutcome(text: fullText, decision: nil)
+            return NodeOutcome(text: fullText, decision: nil,
+                               cutOffAt: cutOff ? request.maxTokens : nil)
 
         case .condition(let rule):
             let decision = try await evaluate(rule, input: input, references: references)
@@ -344,6 +360,14 @@ public struct FlowEngine: Sendable {
                 emit(.nodeDelta(id: node.id, text: chunk))
             }
             transcript.append(.assistant(text: turn.text, toolCalls: turn.toolCalls))
+
+            // A turn that stopped at Max tokens may hold a tool call with
+            // partial or empty arguments. Running it could do the wrong thing
+            // for real, so its calls are dropped and the node ends here, with
+            // the text so far and the cut-off reported.
+            if turn.cutOff {
+                return NodeOutcome(text: finalText, decision: nil, cutOffAt: request.maxTokens)
+            }
 
             guard !turn.toolCalls.isEmpty else {
                 return NodeOutcome(text: finalText, decision: nil)

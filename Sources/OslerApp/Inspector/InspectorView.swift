@@ -214,7 +214,11 @@ struct InspectorView: View {
     // MARK: Output (full text + copy)
 
     @ViewBuilder private func outputSection(_ node: Node) -> some View {
-        if let output = run.outputs[node.id], !output.isEmpty {
+        let output = run.outputs[node.id] ?? ""
+        let cutOffLimit = run.state(for: node.id) == .done ? run.cutOff[node.id] : nil
+        // A cut-off answer can be empty (the limit hit before any text); the
+        // section still shows so the note explains the blank.
+        if !output.isEmpty || cutOffLimit != nil {
             let failed = run.state(for: node.id) == .failed
             VStack(alignment: .leading, spacing: 8) {
                 Divider().overlay(Theme.surfaceVariant)
@@ -240,17 +244,26 @@ struct InspectorView: View {
                     .buttonStyle(HoverRowStyle())
                     .help("Copy the full output")
                 }
-                ScrollView {
-                    Text(output)
-                        .font(.oslerBody(11.5))
-                        .foregroundStyle(failed ? Theme.error : Theme.textPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
+                if let limit = cutOffLimit {
+                    Label("Cut off at \(limit) tokens. Raise Max tokens to get the rest.",
+                          systemImage: "scissors")
+                        .font(.oslerBody(10.5))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxHeight: 240)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.surfaceLowest))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.outlineVariant.opacity(0.4)))
+                if !output.isEmpty {
+                    ScrollView {
+                        Text(output)
+                            .font(.oslerBody(11.5))
+                            .foregroundStyle(failed ? Theme.error : Theme.textPrimary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
+                    .frame(maxHeight: 240)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.surfaceLowest))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.outlineVariant.opacity(0.4)))
+                }
             }
         }
     }

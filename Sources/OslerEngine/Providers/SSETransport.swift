@@ -3,6 +3,11 @@ import Foundation
 /// What a provider wants done with one parsed SSE `data:` payload.
 enum ProviderStreamAction: Equatable, Sendable {
     case text(String)
+    /// The model stopped because it reached the request's max-tokens limit.
+    /// `text` is a final chunk that arrived in the same payload (an
+    /// OpenAI-compatible server may send one); usually empty. The stream
+    /// still runs to the provider's stop marker.
+    case cutOff(text: String)
     case stop
     case ignore
     case error(String)
@@ -41,13 +46,13 @@ enum SSE {
     }
 
     /// Shared transport: performs the request, surfaces non-200s as
-    /// `LLMProviderError.api`, then turns `data:` lines into text deltas via
+    /// `LLMProviderError.api`, then turns `data:` lines into stream events via
     /// the provider's parser. Cancelling the consumer cancels the request.
     static func openStream(
         _ request: URLRequest,
         session: URLSession = .shared,
         parse: @escaping @Sendable (String) -> ProviderStreamAction
-    ) async throws -> AsyncThrowingStream<String, Error> {
+    ) async throws -> AsyncThrowingStream<LLMStreamEvent, Error> {
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw LLMProviderError.invalidResponse("Response was not HTTP.")
@@ -65,7 +70,7 @@ enum SSE {
     static func decode<Bytes: AsyncSequence & Sendable>(
         bytes: Bytes,
         parse: @escaping @Sendable (String) -> ProviderStreamAction
-    ) -> AsyncThrowingStream<String, Error> where Bytes.Element == UInt8 {
+    ) -> AsyncThrowingStream<LLMStreamEvent, Error> where Bytes.Element == UInt8 {
 AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -115,7 +120,7 @@ AsyncThrowingStream { continuation in
     /// Resets `lineBytes` for the next line.
     private static func handle(
         _ lineBytes: inout [UInt8],
-        _ continuation: AsyncThrowingStream<String, Error>.Continuation,
+        _ continuation: AsyncThrowingStream<LLMStreamEvent, Error>.Continuation,
         _ parse: (String) -> ProviderStreamAction
     ) throws -> Bool {
         if lineBytes.last == 0x0D { lineBytes.removeLast() } // strip CR of a CRLF
@@ -124,7 +129,11 @@ AsyncThrowingStream { continuation in
         guard let payload = dataPayload(of: line) else { return true }
         switch parse(payload) {
         case .text(let text):
-            continuation.yield(text)
+            continuation.yield(.text(text))
+            return true
+        case .cutOff(let text):
+            if !text.isEmpty { continuation.yield(.text(text)) }
+            continuation.yield(.cutOff)
             return true
         case .stop:
             continuation.finish()

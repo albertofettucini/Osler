@@ -206,6 +206,10 @@ func run(_ graph: FlowGraph, using engine: FlowEngine) async -> Int32 {
                 FileHandle.standardOutput.write(Data(text.utf8))
             case .conditionRouted(let id, let tookYes):
                 print("\n↳ \(name(id)) → \(tookYes ? "YES" : "NO") branch")
+            case .nodeCutOff(let id, let maxTokens):
+                FileHandle.standardError.write(Data(
+                    "\n⚠ \(name(id)): cut off at \(maxTokens) tokens (raise maxTokens to get the rest)\n".utf8
+                ))
             case .nodeFinished(let id, let output):
                 if kinds[id] == .input || kinds[id] == .output {
                     print("  \(output.replacingOccurrences(of: "\n", with: "\n  "))")

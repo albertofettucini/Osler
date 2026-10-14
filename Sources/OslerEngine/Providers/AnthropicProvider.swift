@@ -12,6 +12,10 @@ public struct AnthropicProvider: LLMProvider {
     }
 
     public func streamText(_ request: LLMRequest) async throws -> AsyncThrowingStream<String, Error> {
+        LLMStreamEvent.textOnly(try await streamEvents(request))
+    }
+
+    public func streamEvents(_ request: LLMRequest) async throws -> AsyncThrowingStream<LLMStreamEvent, Error> {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             throw LLMProviderError.missingAPIKey(.anthropic)
@@ -72,6 +76,13 @@ public struct AnthropicProvider: LLMProvider {
         struct Delta: Decodable {
             let type: String?
             let text: String?
+            /// Only on `message_delta`: why the model stopped.
+            let stopReason: String?
+
+            enum CodingKeys: String, CodingKey {
+                case type, text
+                case stopReason = "stop_reason"
+            }
         }
         struct APIError: Decodable {
             let type: String?
@@ -95,12 +106,19 @@ public struct AnthropicProvider: LLMProvider {
                 return .text(text)
             }
             return .ignore
+        case "message_delta":
+            // Carries the stop reason just before message_stop. "max_tokens"
+            // means the answer was cut off, not finished.
+            if message.delta?.stopReason == "max_tokens" {
+                return .cutOff(text: "")
+            }
+            return .ignore
         case "message_stop":
             return .stop
         case "error":
             return .error(message.error?.message ?? "Unknown stream error")
         default:
-            // message_start, content_block_start/stop, message_delta, ping…
+            // message_start, content_block_start/stop, ping…
             return .ignore
         }
     }

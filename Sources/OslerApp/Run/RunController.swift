@@ -37,6 +37,9 @@ final class RunController: ObservableObject {
     /// explanation anywhere in the UI. Kept structured (server name plus
     /// message) so the canvas can name the server and count the failures.
     @Published private(set) var toolWarnings: [MCPToolbox.StartFailure] = []
+    /// Agents whose answer stopped at their Max tokens limit this run, with
+    /// the limit that was hit (not the current setting, which may change).
+    @Published private(set) var cutOff: [UUID: Int] = [:]
 
     private var task: Task<Void, Never>?
     /// Identifies the run a completion belongs to. A cancelled run's tail used
@@ -65,6 +68,7 @@ final class RunController: ObservableObject {
         streaming = []
         startupError = nil
         toolWarnings = []
+        cutOff = [:]
     }
 
     func run(_ graph: FlowGraph, registry: ProviderRegistry,
@@ -163,11 +167,14 @@ final class RunController: ObservableObject {
             // same node must not inherit the previous pass's tokens.
             pendingDeltas[id] = nil
             streaming.insert(id)
+            cutOff[id] = nil
         case .nodeDelta(let id, let text):
             pendingDeltas[id, default: ""] += text
             scheduleFlush()
         case .conditionRouted(let id, let tookYes):
             decisions[id] = tookYes
+        case .nodeCutOff(let id, let maxTokens):
+            cutOff[id] = maxTokens
         case .nodeFinished(let id, let output):
             flushDeltas()
             states[id] = .done

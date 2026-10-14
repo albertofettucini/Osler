@@ -74,10 +74,14 @@ public enum LLMMessage: Equatable, Sendable {
 public struct LLMTurnResult: Sendable {
     public let text: String
     public let toolCalls: [ToolCall]
+    /// The turn stopped at the request's max-tokens limit. Its text is
+    /// incomplete, and any tool call in it may carry partial arguments.
+    public let cutOff: Bool
 
-    public init(text: String, toolCalls: [ToolCall]) {
+    public init(text: String, toolCalls: [ToolCall], cutOff: Bool = false) {
         self.text = text
         self.toolCalls = toolCalls
+        self.cutOff = cutOff
     }
 }
 

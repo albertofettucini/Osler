@@ -325,3 +325,133 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(summary.outputs[input.id], "go")
     }
 }
+
+// MARK: - Cut off at Max tokens
+
+/// Plays back scripted tool-loop turns.
+private final class ScriptedTurnProvider: LLMProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var turns: [LLMTurnResult]
+    private(set) var turnCount = 0
+
+    init(turns: [LLMTurnResult]) { self.turns = turns }
+
+    func streamText(_ request: LLMRequest) async throws -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { $0.finish(throwing: LLMProviderError.stream("streamText not expected")) }
+    }
+
+    func completeTurn(_ request: LLMRequest, tools: [LLMTool],
+                      transcript: [LLMMessage]) async throws -> LLMTurnResult {
+        lock.lock()
+        defer { lock.unlock() }
+        turnCount += 1
+        guard !turns.isEmpty else { return LLMTurnResult(text: "", toolCalls: []) }
+        return turns.removeFirst()
+    }
+}
+
+/// Records every tool call it's asked to run.
+private final class RecordingExecutor: ToolExecutor, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: [String] = []
+    let tool = LLMTool(name: "delete_file", description: "Deletes a file",
+                       inputSchema: .object(["type": .string("object")]))
+
+    var callNames: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func tools(for serverIDs: [String]) async -> [LLMTool] { [tool] }
+
+    func call(name: String, argumentsJSON: String,
+              allowedServerIDs: [String]) async -> (content: String, isError: Bool) {
+        lock.lock()
+        calls.append(name)
+        lock.unlock()
+        return ("ok", false)
+    }
+}
+
+final class CutOffTests: XCTestCase {
+
+    private func linearGraph(maxTokens: Int, toolServerIDs: [String] = [])
+        -> (FlowGraph, agent: Node, output: Node) {
+        let input = Node(name: "Input", config: .input(text: "go"))
+        let agent = Node(name: "Draft", config: .agent(AgentConfig(maxTokens: maxTokens,
+                                                                   toolServerIDs: toolServerIDs)))
+        let output = Node(name: "Output", config: .output)
+        let graph = FlowGraph(nodes: [input, agent, output], edges: [
+            Edge(from: input.id, to: agent.id),
+            Edge(from: agent.id, to: output.id),
+        ])
+        return (graph, agent, output)
+    }
+
+    func testStreamedAnswerCutOffIsReportedBeforeTheNodeFinishes() async throws {
+        let (graph, agent, output) = linearGraph(maxTokens: 20)
+        var registry = ProviderRegistry()
+        registry.register(EventMockProvider(events: [.text("Half an "), .text("answer"), .cutOff]),
+                          for: .anthropic)
+
+        let events = try await collectEvents(FlowEngine(providers: registry), graph)
+
+        let cutOff = events.firstIndex(of: .nodeCutOff(id: agent.id, maxTokens: 20))
+        let finished = events.firstIndex(of: .nodeFinished(id: agent.id, output: "Half an answer"))
+        XCTAssertNotNil(cutOff)
+        XCTAssertNotNil(finished)
+        XCTAssertLessThan(cutOff!, finished!)
+        // The partial answer still flows downstream.
+        XCTAssertEqual(finalSummary(of: events)?.outputs[output.id], "Half an answer")
+    }
+
+    func testAFinishedAnswerIsNotReportedAsCutOff() async throws {
+        let (graph, _, _) = linearGraph(maxTokens: 2048)
+        let registry = makeRegistry { _ in ["Complete."] }
+
+        let events = try await collectEvents(FlowEngine(providers: registry), graph)
+
+        XCTAssertFalse(events.contains { if case .nodeCutOff = $0 { return true }; return false })
+    }
+
+    func testAToolCallFromACutOffTurnIsNeverExecuted() async throws {
+        let (graph, agent, _) = linearGraph(maxTokens: 64, toolServerIDs: ["srv"])
+        // The model ran out of tokens mid tool call: the arguments are
+        // whatever made it out before the limit.
+        let provider = ScriptedTurnProvider(turns: [
+            LLMTurnResult(text: "Cleaning up",
+                          toolCalls: [ToolCall(id: "c1", name: "delete_file", argumentsJSON: #"{"path":"/Us"#)],
+                          cutOff: true),
+            LLMTurnResult(text: "should never be asked for", toolCalls: []),
+        ])
+        var registry = ProviderRegistry()
+        registry.register(provider, for: .anthropic)
+        let executor = RecordingExecutor()
+
+        let events = try await collectEvents(FlowEngine(providers: registry, toolbox: executor), graph)
+
+        XCTAssertEqual(executor.callNames, [], "A truncated tool call must not run")
+        XCTAssertEqual(provider.turnCount, 1)
+        XCTAssertTrue(events.contains(.nodeCutOff(id: agent.id, maxTokens: 64)))
+        XCTAssertEqual(finalSummary(of: events)?.outputs[agent.id], "Cleaning up")
+        XCTAssertNil(finalSummary(of: events)?.failures[agent.id])
+    }
+
+    func testAToolLoopThatFinishesNormallyIsNotCutOff() async throws {
+        let (graph, agent, _) = linearGraph(maxTokens: 2048, toolServerIDs: ["srv"])
+        let provider = ScriptedTurnProvider(turns: [
+            LLMTurnResult(text: "", toolCalls: [ToolCall(id: "c1", name: "delete_file", argumentsJSON: "{}")]),
+            LLMTurnResult(text: "Done.", toolCalls: []),
+        ])
+        var registry = ProviderRegistry()
+        registry.register(provider, for: .anthropic)
+        let executor = RecordingExecutor()
+
+        let events = try await collectEvents(FlowEngine(providers: registry, toolbox: executor), graph)
+
+        XCTAssertEqual(executor.callNames, ["delete_file"])
+        XCTAssertFalse(events.contains { if case .nodeCutOff = $0 { return true }; return false })
+        XCTAssertEqual(finalSummary(of: events)?.outputs[agent.id], "Done.")
+    }
+}

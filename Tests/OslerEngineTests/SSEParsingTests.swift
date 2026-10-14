@@ -51,6 +51,32 @@ final class SSEParsingTests: XCTestCase {
         XCTAssertEqual(AnthropicProvider.parse(payload: "not json"), .ignore)
     }
 
+    func testAnthropicMaxTokensStopIsACutOff() {
+        let payload = #"{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":20}}"#
+        XCTAssertEqual(AnthropicProvider.parse(payload: payload), .cutOff(text: ""))
+    }
+
+    func testAnthropicToolTurnStoppedAtMaxTokensIsACutOff() {
+        let response: JSONValue = .object([
+            "stop_reason": .string("max_tokens"),
+            "content": .array([
+                .object(["type": .string("text"), "text": .string("Let me check")]),
+                .object(["type": .string("tool_use"), "id": .string("t1"), "name": .string("search"),
+                         "input": .object([:])]),
+            ]),
+        ])
+        let turn = AnthropicProvider.turnResult(from: response)
+        XCTAssertTrue(turn.cutOff)
+        XCTAssertEqual(turn.text, "Let me check")
+        XCTAssertEqual(turn.toolCalls.map(\.name), ["search"])
+
+        let finished: JSONValue = .object([
+            "stop_reason": .string("end_turn"),
+            "content": .array([.object(["type": .string("text"), "text": .string("Done.")])]),
+        ])
+        XCTAssertFalse(AnthropicProvider.turnResult(from: finished).cutOff)
+    }
+
     // MARK: OpenAI
 
     func testOpenAITextDelta() {
@@ -81,20 +107,61 @@ final class SSEParsingTests: XCTestCase {
         XCTAssertEqual(OpenAIProvider.parse(payload: "not json"), .ignore)
     }
 
+    func testOpenAILengthFinishIsACutOff() {
+        let payload = #"{"id":"chatcmpl-1","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}"#
+        XCTAssertEqual(OpenAIProvider.parse(payload: payload), .cutOff(text: ""))
+    }
+
+    func testLengthFinishCarryingTheLastChunkKeepsTheText() {
+        // OpenAI-compatible servers (Ollama among them) may put the final
+        // text and the finish reason in one chunk.
+        let payload = #"{"choices":[{"index":0,"delta":{"role":"assistant","content":" end"},"finish_reason":"length"}]}"#
+        XCTAssertEqual(OpenAIProvider.parse(payload: payload), .cutOff(text: " end"))
+    }
+
+    func testOpenAIToolTurnStoppedAtLengthIsACutOff() {
+        let response: JSONValue = .object([
+            "choices": .array([.object([
+                "finish_reason": .string("length"),
+                "message": .object([
+                    "content": .null,
+                    "tool_calls": .array([.object([
+                        "id": .string("c1"),
+                        "function": .object(["name": .string("search"), "arguments": .string(#"{"q":"#)]),
+                    ])]),
+                ]),
+            ])]),
+        ])
+        let turn = OpenAIProvider.turnResult(from: response)
+        XCTAssertTrue(turn.cutOff)
+        XCTAssertEqual(turn.toolCalls.map(\.argumentsJSON), [#"{"q":"#])
+
+        let finished: JSONValue = .object([
+            "choices": .array([.object([
+                "finish_reason": .string("stop"),
+                "message": .object(["content": .string("Done.")]),
+            ])]),
+        ])
+        XCTAssertFalse(OpenAIProvider.turnResult(from: finished).cutOff)
+    }
+
     // MARK: Stream termination
     //
     // A dropped connection used to look exactly like a finished answer: the
     // byte sequence just ended and the node was marked done with whatever
     // text had arrived. These pin the difference.
 
-    private func collect(_ text: String) async -> Result<[String], Error> {
+    private func collect(
+        _ text: String,
+        parse: @escaping @Sendable (String) -> ProviderStreamAction = { OpenAIProvider.parse(payload: $0) }
+    ) async -> Result<[LLMStreamEvent], Error> {
         let bytes = SyntheticBytes(text)
         do {
-            var chunks: [String] = []
-            for try await chunk in SSE.decode(bytes: bytes, parse: { OpenAIProvider.parse(payload: $0) }) {
-                chunks.append(chunk)
+            var events: [LLMStreamEvent] = []
+            for try await event in SSE.decode(bytes: bytes, parse: parse) {
+                events.append(event)
             }
-            return .success(chunks)
+            return .success(events)
         } catch {
             return .failure(error)
         }
@@ -108,7 +175,42 @@ final class SSEParsingTests: XCTestCase {
             "",
         ].joined(separator: "\n")
         let result = await collect(body)
-        XCTAssertEqual(try result.get(), ["Hel", "lo"])
+        XCTAssertEqual(try result.get(), [.text("Hel"), .text("lo")])
+    }
+
+    func testOpenAIStreamCutOffAtLengthFinishesWithACutOffEvent() async throws {
+        let body = [
+            #"data: {"choices":[{"delta":{"content":"Hel"}}]}"#,
+            #"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#,
+            "data: [DONE]",
+            "",
+        ].joined(separator: "\n")
+        let result = await collect(body)
+        XCTAssertEqual(try result.get(), [.text("Hel"), .cutOff])
+    }
+
+    func testAnthropicStreamCutOffAtMaxTokensFinishesWithACutOffEvent() async throws {
+        let body = [
+            "event: content_block_delta",
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}"#,
+            "event: message_delta",
+            #"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":1}}"#,
+            "event: message_stop",
+            #"data: {"type":"message_stop"}"#,
+            "",
+        ].joined(separator: "\n")
+        let result = await collect(body, parse: { AnthropicProvider.parse(payload: $0) })
+        XCTAssertEqual(try result.get(), [.text("Hel"), .cutOff])
+    }
+
+    func testATextOnlyProviderGetsAStreamWithoutCutOffs() async throws {
+        // Third-party providers that only implement streamText still work.
+        var events: [LLMStreamEvent] = []
+        for try await event in try await MockProvider(chunks: { _ in ["a", "b"] })
+            .streamEvents(LLMRequest(model: "m", userText: "x")) {
+            events.append(event)
+        }
+        XCTAssertEqual(events, [.text("a"), .text("b")])
     }
 
     func testStreamCutOffMidAnswerIsAnErrorNotAPartialSuccess() async throws {

@@ -40,11 +40,19 @@ extension AnthropicProvider {
         urlRequest.setValue("application/json", forHTTPHeaderField: "content-type")
         urlRequest.httpBody = try JSONEncoder().encode(JSONValue.object(body))
 
-        let result = try await ToolTurnHTTP.json(for: urlRequest)
+        return Self.turnResult(from: try await ToolTurnHTTP.json(for: urlRequest))
+    }
 
-        // content: [{type: text|tool_use, …}]
+    /// Reads one Messages API response. Split out so the wire format can be
+    /// tested without a network call.
+    static func turnResult(from result: JSONValue) -> LLMTurnResult {
+        // content: [{type: text|tool_use, …}], stop_reason: end_turn|tool_use|max_tokens|…
         var text = ""
         var calls: [ToolCall] = []
+        var cutOff = false
+        if case .object(let object) = result {
+            if case .string("max_tokens")? = object["stop_reason"] { cutOff = true }
+        }
         if case .object(let object) = result, case .array(let content)? = object["content"] {
             for block in content {
                 guard case .object(let item) = block, case .string(let type)? = item["type"] else { continue }
@@ -62,7 +70,7 @@ extension AnthropicProvider {
                 }
             }
         }
-        return LLMTurnResult(text: text, toolCalls: calls)
+        return LLMTurnResult(text: text, toolCalls: calls, cutOff: cutOff)
     }
 
     /// Anthropic requires strictly alternating roles, so consecutive tool
@@ -192,10 +200,21 @@ extension OpenAIProvider {
         urlRequest.setValue("application/json", forHTTPHeaderField: "content-type")
         urlRequest.httpBody = try JSONEncoder().encode(JSONValue.object(body))
 
-        let result = try await ToolTurnHTTP.json(for: urlRequest)
+        return Self.turnResult(from: try await ToolTurnHTTP.json(for: urlRequest))
+    }
 
+    /// Reads one Chat Completions response. Split out so the wire format can
+    /// be tested without a network call.
+    static func turnResult(from result: JSONValue) -> LLMTurnResult {
         var text = ""
         var calls: [ToolCall] = []
+        var cutOff = false
+        if case .object(let object) = result,
+           case .array(let choices)? = object["choices"],
+           case .object(let choice)? = choices.first {
+            // "length" = stopped at the token limit.
+            if case .string("length")? = choice["finish_reason"] { cutOff = true }
+        }
         if case .object(let object) = result,
            case .array(let choices)? = object["choices"],
            case .object(let choice)? = choices.first,
@@ -213,7 +232,7 @@ extension OpenAIProvider {
                 }
             }
         }
-        return LLMTurnResult(text: text, toolCalls: calls)
+        return LLMTurnResult(text: text, toolCalls: calls, cutOff: cutOff)
     }
 }
 

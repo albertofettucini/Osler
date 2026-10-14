@@ -22,6 +22,10 @@ public struct OpenAIProvider: LLMProvider {
     }
 
     public func streamText(_ request: LLMRequest) async throws -> AsyncThrowingStream<String, Error> {
+        LLMStreamEvent.textOnly(try await streamEvents(request))
+    }
+
+    public func streamEvents(_ request: LLMRequest) async throws -> AsyncThrowingStream<LLMStreamEvent, Error> {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             throw LLMProviderError.missingAPIKey(.openai)
@@ -94,6 +98,12 @@ public struct OpenAIProvider: LLMProvider {
                 let content: String?
             }
             let delta: Delta?
+            let finishReason: String?
+
+            enum CodingKeys: String, CodingKey {
+                case delta
+                case finishReason = "finish_reason"
+            }
         }
         struct APIError: Decodable {
             let message: String?
@@ -114,7 +124,14 @@ public struct OpenAIProvider: LLMProvider {
         if let error = chunk.error {
             return .error(error.message ?? "Unknown stream error")
         }
-        if let text = chunk.choices?.first?.delta?.content, !text.isEmpty {
+        let choice = chunk.choices?.first
+        let text = choice?.delta?.content ?? ""
+        // "length" = stopped at the token limit (Ollama and other compatible
+        // servers say the same). The stream still ends with [DONE].
+        if choice?.finishReason == "length" {
+            return .cutOff(text: text)
+        }
+        if !text.isEmpty {
             return .text(text)
         }
         return .ignore

@@ -53,6 +53,23 @@ struct SlowMockProvider: LLMProvider {
     }
 }
 
+/// Streams scripted events, so a test can end an answer at the token limit.
+struct EventMockProvider: LLMProvider {
+    var events: [LLMStreamEvent]
+
+    func streamText(_ request: LLMRequest) async throws -> AsyncThrowingStream<String, Error> {
+        LLMStreamEvent.textOnly(try await streamEvents(request))
+    }
+
+    func streamEvents(_ request: LLMRequest) async throws -> AsyncThrowingStream<LLMStreamEvent, Error> {
+        let events = self.events
+        return AsyncThrowingStream { continuation in
+            for event in events { continuation.yield(event) }
+            continuation.finish()
+        }
+    }
+}
+
 func makeRegistry(anthropic: @escaping @Sendable (LLMRequest) throws -> [String]) -> ProviderRegistry {
     var registry = ProviderRegistry()
     registry.register(MockProvider(chunks: anthropic), for: .anthropic)

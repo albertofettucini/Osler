@@ -165,15 +165,26 @@ struct NodeView: View {
         case .running:
             ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
         case .done, .failed, .skipped:
-            Text(state == .done ? "Done" : state == .failed ? "Failed" : "Skipped")
-                .font(.oslerLabel(9))
-                .foregroundStyle(Theme.stateColor(state))
-                .padding(.horizontal, 7).padding(.vertical, 2.5)
-                .background(Capsule().fill(Theme.stateChipBackground(state)))
-                .overlay(Capsule().strokeBorder(Theme.stateColor(state).opacity(0.25)))
+            if state == .done, let limit = run.cutOff[node.id] {
+                // Keeps the Done chip's neutral look: amber already means
+                // Condition, and the output is still usable downstream.
+                stateChip("Cut off")
+                    .help("Stopped at the Max tokens limit (\(limit)). Raise it in the inspector to get the whole answer.")
+            } else {
+                stateChip(state == .done ? "Done" : state == .failed ? "Failed" : "Skipped")
+            }
         case .idle:
             EmptyView()
         }
+    }
+
+    private func stateChip(_ title: String) -> some View {
+        Text(title)
+            .font(.oslerLabel(9))
+            .foregroundStyle(Theme.stateColor(state))
+            .padding(.horizontal, 7).padding(.vertical, 2.5)
+            .background(Capsule().fill(Theme.stateChipBackground(state)))
+            .overlay(Capsule().strokeBorder(Theme.stateColor(state).opacity(0.25)))
     }
 
     // MARK: Body

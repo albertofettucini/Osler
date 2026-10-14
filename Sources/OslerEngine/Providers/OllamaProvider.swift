@@ -21,9 +21,13 @@ public struct OllamaProvider: LLMProvider {
     }
 
     public func streamText(_ request: LLMRequest) async throws -> AsyncThrowingStream<String, Error> {
-        let upstream: AsyncThrowingStream<String, Error>
+        LLMStreamEvent.textOnly(try await streamEvents(request))
+    }
+
+    public func streamEvents(_ request: LLMRequest) async throws -> AsyncThrowingStream<LLMStreamEvent, Error> {
+        let upstream: AsyncThrowingStream<LLMStreamEvent, Error>
         do {
-            upstream = try await innerProvider.streamText(request)
+            upstream = try await innerProvider.streamEvents(request)
         } catch {
             throw Self.friendly(error)
         }
@@ -32,7 +36,7 @@ public struct OllamaProvider: LLMProvider {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    for try await chunk in upstream { continuation.yield(chunk) }
+                    for try await event in upstream { continuation.yield(event) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: Self.friendly(error))
