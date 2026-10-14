@@ -94,10 +94,10 @@ struct CanvasView: View {
             .simultaneousGesture(magnifyGesture(viewSize: geo.size))
             .overlay(alignment: .bottomTrailing) {
                 HStack(spacing: 10) {
-                    // Informational only — never allowed to swallow clicks.
+                    // Informational only — never allowed to swallow clicks
+                    // (the tool-server badge takes hover for its tooltip).
                     statusBadge
                         .frame(maxWidth: 440, alignment: .trailing)
-                        .allowsHitTesting(false)
                     fullscreenControl
                 }
                 .padding(16)
@@ -336,17 +336,36 @@ struct CanvasView: View {
         }
     }
 
-    /// A run-level error takes priority; otherwise the first validation issue.
+    /// A run-level error takes priority, then tool servers that didn't start,
+    /// then the first validation issue.
     @ViewBuilder private var statusBadge: some View {
         if let error = run.startupError {
             badge(error, icon: "xmark.octagon.fill", tint: Theme.stateColor(.failed))
+                .allowsHitTesting(false)
+        } else if !run.toolWarnings.isEmpty {
+            // The one badge that takes the pointer: hovering lists every
+            // failure with its reason. It has no click action.
+            badge(toolWarningText(run.toolWarnings),
+                  icon: "exclamationmark.triangle.fill", tint: Theme.stateColor(.failed))
+                .help(run.toolWarnings.map { "\($0.serverName): \($0.message)" }
+                    .joined(separator: "\n"))
         } else {
             let issues = editor.validationIssues
             if let first = issues.first {
                 badge(issues.count == 1 ? first.description : "\(issues.count) issues — \(first.description)",
                       icon: "exclamationmark.triangle.fill", tint: Theme.stateColor(.failed))
+                    .allowsHitTesting(false)
             }
         }
+    }
+
+    /// Without this an agent whose servers failed answers from memory with no
+    /// tools and no explanation (FlowEngine falls back to plain streaming).
+    private func toolWarningText(_ failures: [MCPToolbox.StartFailure]) -> String {
+        if failures.count == 1, let only = failures.first {
+            return "\"\(only.serverName)\" didn't start. Its tools are off for this run."
+        }
+        return "\(failures.count) tool servers didn't start. Their tools are off for this run."
     }
 
     private func badge(_ text: String, icon: String, tint: Color) -> some View {

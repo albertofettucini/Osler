@@ -34,8 +34,9 @@ final class RunController: ObservableObject {
     @Published private(set) var history: [RunRecord] = []
     /// MCP servers that refused to start. These used to be collected and
     /// dropped, so an agent would answer from memory with no tools and no
-    /// explanation anywhere in the UI.
-    @Published private(set) var toolWarnings: [String] = []
+    /// explanation anywhere in the UI. Kept structured (server name plus
+    /// message) so the canvas can name the server and count the failures.
+    @Published private(set) var toolWarnings: [MCPToolbox.StartFailure] = []
 
     private var task: Task<Void, Never>?
     /// Identifies the run a completion belongs to. A cancelled run's tail used
@@ -92,7 +93,7 @@ final class RunController: ObservableObject {
                 await toolbox.start(servers: servers)
                 let failures = await toolbox.failures
                 if !failures.isEmpty, let self, self.generation == generation {
-                    self.toolWarnings = failures.map { "\($0.serverName): \($0.message)" }
+                    self.toolWarnings = failures
                 }
             }
             do {
