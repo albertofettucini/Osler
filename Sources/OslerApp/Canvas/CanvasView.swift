@@ -320,9 +320,14 @@ struct CanvasView: View {
         let b = editor.screenToWorld(CGPoint(x: rect.maxX, y: rect.maxY))
         let world = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
                            width: abs(b.x - a.x), height: abs(b.y - a.y))
-        editor.selectedIDs = Set(
+        let hit = Set(
             editor.graph.nodes.filter { NodeGeometry.rect($0).intersects(world) }.map(\.id)
         )
+        // Assign only on a real change: every set of the @Published selection
+        // re-renders every card and panel, and the marquee calls this per tick.
+        if hit != editor.selectedIDs {
+            editor.selectedIDs = hit
+        }
     }
 
     private func magnifyGesture(viewSize: CGSize) -> some Gesture {

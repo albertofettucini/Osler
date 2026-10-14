@@ -277,28 +277,7 @@ struct NodeView: View {
     }
 
     private func portDot(filled: Bool, label: String? = nil) -> some View {
-        ZStack {
-            // Design language: light ring with the accent core (surface-toned
-            // so it doesn't glare on the dark canvas).
-            Circle()
-                .fill(Theme.nodeSurfaceRaised)
-                .overlay(Circle().strokeBorder(filled ? tint : Theme.outlineVariant, lineWidth: 1.4))
-                .frame(width: NodeGeometry.portRadius * 2, height: NodeGeometry.portRadius * 2)
-                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-            if let label {
-                Text(label)
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(tint)
-            } else if filled {
-                Circle().fill(tint).frame(width: 5.5, height: 5.5)
-            }
-        }
-        // The inset is in world units but hit-testing happens after the zoom
-        // transform — divide by scale so the grab target keeps a constant
-        // screen size instead of shrinking to a pixel hunt when zoomed out.
-        // Reads only the viewport's scale, so a zoom refreshes the halo but a
-        // pan does not re-render the card.
-        .contentShape(Circle().inset(by: -12 / editor.viewport.scale))
+        PortDot(filled: filled, label: label, tint: tint, viewport: editor.viewport)
     }
 
     // MARK: Gestures
@@ -436,5 +415,39 @@ enum NodeSummary {
         case .unknown(let rawType, _):
             return "Unsupported node (\(rawType)) — from a newer version"
         }
+    }
+}
+
+/// One port dot. Its own view (not a helper method on `NodeView`) so the
+/// scale it reads for the grab halo is tracked here: a zoom tick re-renders
+/// just the 2-3 dots per card, not the whole card with its shadows.
+private struct PortDot: View {
+    let filled: Bool
+    let label: String?
+    let tint: Color
+    let viewport: CanvasViewport
+
+    var body: some View {
+        ZStack {
+            // Design language: light ring with the accent core (surface-toned
+            // so it doesn't glare on the dark canvas).
+            Circle()
+                .fill(Theme.nodeSurfaceRaised)
+                .overlay(Circle().strokeBorder(filled ? tint : Theme.outlineVariant, lineWidth: 1.4))
+                .frame(width: NodeGeometry.portRadius * 2, height: NodeGeometry.portRadius * 2)
+                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+            if let label {
+                Text(label)
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(tint)
+            } else if filled {
+                Circle().fill(tint).frame(width: 5.5, height: 5.5)
+            }
+        }
+        // The inset is in world units but hit-testing happens after the zoom
+        // transform — divide by scale so the grab target keeps a constant
+        // screen size instead of shrinking to a pixel hunt when zoomed out.
+        // Reads only the viewport's scale, so a pan re-renders nothing here.
+        .contentShape(Circle().inset(by: -12 / viewport.scale))
     }
 }
