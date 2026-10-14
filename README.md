@@ -89,14 +89,24 @@ server at `localhost:11434`.
 ## Getting started
 
 **[Download the latest release](https://github.com/albertofettucini/Osler/releases/latest)**
-— macOS 14 or newer. Open the `.dmg`, drag Osler to Applications, then
-**right-click it and choose Open** the first time.
+(macOS 14 or newer). Open the `.dmg` and drag Osler to Applications.
 
-That first-launch warning isn't a problem with the app — it just isn't signed
-with a paid Apple developer account. Right-click → Open tells macOS you meant
-it, once. (No "Open" in the menu? System Settings → Privacy & Security →
-**Open Anyway**.) After that Osler updates itself, and every update is
-signature-verified, so a tampered download is refused.
+The first launch needs one extra step, because Osler isn't signed with a paid
+Apple developer account:
+
+1. Open Osler. macOS says it can't verify the app. Click **Done**, not Move to
+   Trash.
+2. Open **System Settings → Privacy & Security**, scroll down to **Security**,
+   and click **Open Anyway** next to Osler. The button only shows for about an
+   hour after step 1.
+3. Confirm with your password or Touch ID. From then on Osler opens normally.
+
+On macOS 14 you can right-click Osler and choose **Open** instead.
+
+Osler checks for updates by itself. Updates are signed, and Osler won't install
+one that doesn't match the project's signing key. After an update, macOS may
+ask once whether Osler can use the keys it saved in your Keychain. Click
+**Always Allow**.
 
 ### Or build it
 

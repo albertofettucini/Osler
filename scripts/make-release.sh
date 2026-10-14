@@ -142,17 +142,19 @@ Osler — installing
 
 1) Drag Osler onto the Applications folder.
 
-2) Open Applications, RIGHT-CLICK Osler and choose "Open", then click
-   "Open" again in the dialog that appears.
+2) Open Osler from Applications. macOS will say it can't verify the app.
+   Click "Done" (not "Move to Trash").
 
-   That's only needed the first time. macOS shows it because this app isn't
-   signed with a paid Apple developer account — nothing is wrong with it.
+3) Open System Settings > Privacy & Security, scroll down to Security,
+   and click "Open Anyway" next to Osler. Confirm with your password or
+   Touch ID. The button only shows for about an hour after step 2.
 
-   No "Open" option? System Settings > Privacy & Security, scroll down, and
-   click "Open Anyway" next to Osler.
+   You only do this once. It's needed because Osler isn't signed with a
+   paid Apple developer account. On macOS 14 you can right-click Osler
+   and choose "Open" instead.
 
-3) Pick a template and press Run. Your own API keys go in Settings > API Keys,
-   or install Ollama to run local models with no key at all.
+4) Pick a template and press Run. Add your own API keys in Settings >
+   API Keys, or install Ollama and pull a model to run with no key at all.
 
 github.com/albertofettucini/Osler
 TXT
