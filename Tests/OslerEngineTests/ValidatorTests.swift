@@ -50,7 +50,7 @@ final class ValidatorTests: XCTestCase {
         let agent = Node(config: .agent(AgentConfig()))
         let graph = FlowGraph(nodes: [agent], edges: [Edge(from: agent.id, to: agent.id)])
         expectError(graph) {
-            if case .selfLoop(let nodeID) = $0 { return nodeID == agent.id }
+            if case .selfLoop(let nodeID, _) = $0 { return nodeID == agent.id }
             return false
         }
     }
@@ -60,7 +60,7 @@ final class ValidatorTests: XCTestCase {
         let first = Node(id: id, config: .input(text: "a"))
         let second = Node(id: id, config: .output)
         expectError(FlowGraph(nodes: [first, second])) {
-            if case .duplicateNodeID(let nodeID) = $0 { return nodeID == id }
+            if case .duplicateNodeID(let nodeID, _, _) = $0 { return nodeID == id }
             return false
         }
     }
@@ -111,7 +111,7 @@ final class ValidatorTests: XCTestCase {
             Edge(from: agent.id, to: input.id),
         ])
         expectError(graph) {
-            if case .inputNodeHasIncomingEdge(let nodeID) = $0 { return nodeID == input.id }
+            if case .inputNodeHasIncomingEdge(let nodeID, _) = $0 { return nodeID == input.id }
             return false
         }
     }
@@ -123,7 +123,7 @@ final class ValidatorTests: XCTestCase {
             Edge(from: output.id, to: agent.id),
         ])
         expectError(graph) {
-            if case .outputNodeHasOutgoingEdge(let nodeID) = $0 { return nodeID == output.id }
+            if case .outputNodeHasOutgoingEdge(let nodeID, _) = $0 { return nodeID == output.id }
             return false
         }
     }
@@ -210,6 +210,92 @@ final class ValidatorTests: XCTestCase {
         expectError(graph) {
             if case .cycle(let names) = $0 { return names.sorted() == ["Left", "Right"] }
             return false
+        }
+    }
+
+    // MARK: Wording — names, never internal ids
+
+    private static let uuidPattern = try! NSRegularExpression(
+        pattern: "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+    )
+
+    private func containsUUID(_ text: String) -> Bool {
+        Self.uuidPattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    func testNoValidationMessageContainsAUUID() {
+        let id = UUID()
+        let every: [GraphValidationError] = [
+            .emptyGraph,
+            .duplicateNodeID(id, firstName: "Draft", duplicateName: "Review"),
+            .duplicateEdgeID(id),
+            .duplicateEdge(edgeID: id, fromName: "Draft", toName: "Review"),
+            .danglingEdge(edgeID: id),
+            .selfLoop(nodeID: id, nodeName: "Draft"),
+            .invalidPort(edgeID: id, reason: "Only Condition nodes have yes/no ports."),
+            .inputNodeHasIncomingEdge(nodeID: id, nodeName: "Topic"),
+            .outputNodeHasOutgoingEdge(nodeID: id, nodeName: "Result"),
+            .emptyConditionKeyword(nodeID: id, nodeName: "Check"),
+            .emptyLLMCondition(nodeID: id, reason: "Condition node \"Check\" has an empty question."),
+            .unsupportedNode(nodeName: "Later", rawType: "approval"),
+            .cycle(nodeNames: ["Left", "Right"]),
+            .unknownReference(nodeName: "Draft", reference: "Nope"),
+            .referenceNotUpstream(nodeName: "Draft", reference: "Review"),
+            .ambiguousReference(nodeName: "Draft", reference: "Agent", count: 2),
+        ]
+        for issue in every {
+            XCTAssertFalse(containsUUID(issue.description), "UUID in: \(issue.description)")
+        }
+    }
+
+    func testEmittedIssuesNameTheNodesInvolved() {
+        // One graph per rule; every message the validator actually emits must
+        // name nodes, not ids.
+        let sharedID = UUID()
+        let duplicateIDs = FlowGraph(nodes: [
+            Node(id: sharedID, name: "Topic", config: .input(text: "a")),
+            Node(id: sharedID, name: "Result", config: .output),
+        ])
+
+        let agent = Node(name: "Draft", config: .agent(AgentConfig()))
+        let selfLoop = FlowGraph(nodes: [agent], edges: [Edge(from: agent.id, to: agent.id)])
+
+        let input = Node(name: "Topic", config: .input(text: "a"))
+        let output = Node(name: "Result", config: .output)
+        let twice = FlowGraph(nodes: [input, output], edges: [
+            Edge(from: input.id, to: output.id),
+            Edge(from: input.id, to: output.id),
+        ])
+        let intoInput = FlowGraph(nodes: [agent, input], edges: [Edge(from: agent.id, to: input.id)])
+        let outOfOutput = FlowGraph(nodes: [output, agent], edges: [Edge(from: output.id, to: agent.id)])
+        let check = Node(name: "Check", config: .condition(.containsKeyword(" ")))
+        let emptyKeyword = FlowGraph(nodes: [input, check, output], edges: [
+            Edge(from: input.id, to: check.id),
+            Edge(from: check.id, fromPort: .yes, to: output.id),
+        ])
+        let edgeID = UUID()
+        let duplicateEdgeIDs = FlowGraph(nodes: [input, agent, output], edges: [
+            Edge(id: edgeID, from: input.id, to: agent.id),
+            Edge(id: edgeID, from: agent.id, to: output.id),
+        ])
+        let dangling = FlowGraph(nodes: [input], edges: [Edge(from: input.id, to: UUID())])
+
+        let expected: [(FlowGraph, String)] = [
+            (duplicateIDs, "\"Topic\" and \"Result\" share an internal id. The file was probably edited by hand; give one of them a new id in the file."),
+            (selfLoop, "\"Draft\" is connected to itself."),
+            (twice, "\"Topic\" is connected to \"Result\" twice. Remove one of the wires."),
+            (intoInput, "\"Topic\" is an Input node, so nothing can connect into it."),
+            (outOfOutput, "\"Result\" is an Output node, so it can't connect onward."),
+            (emptyKeyword, "\"Check\" needs a keyword to check for."),
+            (duplicateEdgeIDs, "Two connections share an internal id. The file was probably edited by hand; give one of them a new id in the file."),
+            (dangling, "A connection points at a node that isn't in this flow."),
+        ]
+        for (graph, message) in expected {
+            let messages = GraphValidator.issues(in: graph).map(\.description)
+            XCTAssertTrue(messages.contains(message), "Expected \"\(message)\" in \(messages)")
+            for text in messages {
+                XCTAssertFalse(containsUUID(text), "UUID in: \(text)")
+            }
         }
     }
 

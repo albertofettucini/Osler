@@ -1,16 +1,21 @@
 import Foundation
 
+/// Every `description` names nodes the way the canvas does, never by UUID:
+/// these messages reach the canvas badge, the inspector, the Run tooltip and
+/// the CLI, and an internal id means nothing to the person reading them.
 public enum GraphValidationError: Error, Equatable, Sendable, CustomStringConvertible {
     case emptyGraph
-    case duplicateNodeID(UUID)
+    /// `firstName` is the node that already had the id; `duplicateName` is
+    /// the later one that repeats it.
+    case duplicateNodeID(UUID, firstName: String, duplicateName: String)
     case duplicateEdgeID(UUID)
-    case duplicateEdge(edgeID: UUID)
+    case duplicateEdge(edgeID: UUID, fromName: String, toName: String)
     case danglingEdge(edgeID: UUID)
-    case selfLoop(nodeID: UUID)
+    case selfLoop(nodeID: UUID, nodeName: String)
     case invalidPort(edgeID: UUID, reason: String)
-    case inputNodeHasIncomingEdge(nodeID: UUID)
-    case outputNodeHasOutgoingEdge(nodeID: UUID)
-    case emptyConditionKeyword(nodeID: UUID)
+    case inputNodeHasIncomingEdge(nodeID: UUID, nodeName: String)
+    case outputNodeHasOutgoingEdge(nodeID: UUID, nodeName: String)
+    case emptyConditionKeyword(nodeID: UUID, nodeName: String)
     case emptyLLMCondition(nodeID: UUID, reason: String)
     case unsupportedNode(nodeName: String, rawType: String)
     case cycle(nodeNames: [String])
@@ -22,24 +27,25 @@ public enum GraphValidationError: Error, Equatable, Sendable, CustomStringConver
         switch self {
         case .emptyGraph:
             return "The flow has no nodes."
-        case .duplicateNodeID(let id):
-            return "Two nodes share the same id (\(id.uuidString))."
-        case .duplicateEdgeID(let id):
-            return "Two edges share the same id (\(id.uuidString))."
-        case .duplicateEdge(let edgeID):
-            return "The same connection exists twice (edge \(edgeID.uuidString))."
-        case .danglingEdge(let edgeID):
-            return "Edge \(edgeID.uuidString) points at a node that doesn't exist."
-        case .selfLoop(let nodeID):
-            return "Node \(nodeID.uuidString) is connected to itself."
+        case .duplicateNodeID(_, let firstName, let duplicateName):
+            // Not "delete one": removal goes by id, so it would take both.
+            return "\"\(firstName)\" and \"\(duplicateName)\" share an internal id. The file was probably edited by hand; give one of them a new id in the file."
+        case .duplicateEdgeID:
+            return "Two connections share an internal id. The file was probably edited by hand; give one of them a new id in the file."
+        case .duplicateEdge(_, let fromName, let toName):
+            return "\"\(fromName)\" is connected to \"\(toName)\" twice. Remove one of the wires."
+        case .danglingEdge:
+            return "A connection points at a node that isn't in this flow."
+        case .selfLoop(_, let nodeName):
+            return "\"\(nodeName)\" is connected to itself."
         case .invalidPort(_, let reason):
             return reason
-        case .inputNodeHasIncomingEdge(let nodeID):
-            return "Input node \(nodeID.uuidString) can't receive connections."
-        case .outputNodeHasOutgoingEdge(let nodeID):
-            return "Output node \(nodeID.uuidString) can't have outgoing connections."
-        case .emptyConditionKeyword(let nodeID):
-            return "Condition node \(nodeID.uuidString) has an empty keyword."
+        case .inputNodeHasIncomingEdge(_, let nodeName):
+            return "\"\(nodeName)\" is an Input node, so nothing can connect into it."
+        case .outputNodeHasOutgoingEdge(_, let nodeName):
+            return "\"\(nodeName)\" is an Output node, so it can't connect onward."
+        case .emptyConditionKeyword(_, let nodeName):
+            return "\"\(nodeName)\" needs a keyword to check for."
         case .emptyLLMCondition(_, let reason):
             return reason
         case .unsupportedNode(let nodeName, let rawType):
@@ -76,8 +82,9 @@ public enum GraphValidator {
 
         var nodesByID: [UUID: Node] = [:]
         for node in graph.nodes {
-            if nodesByID.updateValue(node, forKey: node.id) != nil {
-                issues.append(.duplicateNodeID(node.id))
+            if let previous = nodesByID.updateValue(node, forKey: node.id) {
+                issues.append(.duplicateNodeID(node.id, firstName: previous.name,
+                                               duplicateName: node.name))
             }
         }
 
@@ -103,12 +110,13 @@ public enum GraphValidator {
                 continue
             }
             if edge.from == edge.to {
-                issues.append(.selfLoop(nodeID: edge.from))
+                issues.append(.selfLoop(nodeID: edge.from, nodeName: source.name))
                 structurallySound = false
                 continue
             }
             if !connections.insert(ConnectionKey(edge)).inserted {
-                issues.append(.duplicateEdge(edgeID: edge.id))
+                issues.append(.duplicateEdge(edgeID: edge.id, fromName: source.name,
+                                             toName: target.name))
             }
             if source.kind == .condition {
                 if edge.fromPort != .yes && edge.fromPort != .no {
@@ -124,10 +132,10 @@ public enum GraphValidator {
                 ))
             }
             if target.kind == .input {
-                issues.append(.inputNodeHasIncomingEdge(nodeID: target.id))
+                issues.append(.inputNodeHasIncomingEdge(nodeID: target.id, nodeName: target.name))
             }
             if source.kind == .output {
-                issues.append(.outputNodeHasOutgoingEdge(nodeID: source.id))
+                issues.append(.outputNodeHasOutgoingEdge(nodeID: source.id, nodeName: source.name))
             }
         }
 
@@ -136,7 +144,7 @@ public enum GraphValidator {
             switch rule {
             case .containsKeyword(let keyword):
                 if keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    issues.append(.emptyConditionKeyword(nodeID: node.id))
+                    issues.append(.emptyConditionKeyword(nodeID: node.id, nodeName: node.name))
                 }
             case .llmYesNo(let question, _, let model):
                 if question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
