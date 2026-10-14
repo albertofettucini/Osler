@@ -170,8 +170,9 @@ wash and card tint in Settings.
   cycle errors instead of hangs.
 - `FlowEngine` — readiness-based scheduling (independent branches run in
   parallel), per-node state as an async event stream, cancellation throughout.
-- `LLMProvider` — a two-method protocol: stream text, or take one tool-calling
-  turn. Adding a provider is a single type.
+- `LLMProvider` — stream text, or take one tool-calling turn; a provider can
+  also say when an answer was cut off (a default covers it). Adding a provider
+  is a single type.
 - `MCPClient` / `MCPToolbox` — stdio JSON-RPC, tool discovery, call routing.
 
 **`Osler`** is the SwiftUI app — canvas, inspector, run controller — bound to
