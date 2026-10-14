@@ -71,6 +71,9 @@ public struct AgentConfig: Hashable, Sendable {
     public var maxTokens: Int
     /// MCP servers whose tools this agent may call (by MCPServerConfig.id).
     public var toolServerIDs: [String]
+    /// Fields of the saved `agent` object this build doesn't know (written by
+    /// a newer version), kept so saving here doesn't strip them.
+    public var extras: [String: JSONValue]
 
     public init(
         provider: ProviderID = .anthropic,
@@ -78,7 +81,8 @@ public struct AgentConfig: Hashable, Sendable {
         systemPrompt: String = "",
         temperature: Double? = nil,
         maxTokens: Int = 2048,
-        toolServerIDs: [String] = []
+        toolServerIDs: [String] = [],
+        extras: [String: JSONValue] = [:]
     ) {
         self.provider = provider
         self.model = model
@@ -86,13 +90,16 @@ public struct AgentConfig: Hashable, Sendable {
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.toolServerIDs = toolServerIDs
+        self.extras = extras
     }
 }
 
 extension AgentConfig: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case provider, model, systemPrompt, temperature, maxTokens, toolServerIDs
     }
+
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
 
     // decodeIfPresent everywhere so adding fields later never breaks old
     // saved flows (missing key ⇒ default, not a decode error).
@@ -104,8 +111,20 @@ extension AgentConfig: Codable {
             systemPrompt: try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? "",
             temperature: try container.decodeIfPresent(Double.self, forKey: .temperature),
             maxTokens: try container.decodeIfPresent(Int.self, forKey: .maxTokens) ?? 2048,
-            toolServerIDs: try container.decodeIfPresent([String].self, forKey: .toolServerIDs) ?? []
+            toolServerIDs: try container.decodeIfPresent([String].self, forKey: .toolServerIDs) ?? [],
+            extras: try decoder.unknownFields(excluding: Self.knownKeys)
         )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(model, forKey: .model)
+        try container.encode(systemPrompt, forKey: .systemPrompt)
+        try container.encodeIfPresent(temperature, forKey: .temperature)
+        try container.encode(maxTokens, forKey: .maxTokens)
+        try container.encode(toolServerIDs, forKey: .toolServerIDs)
+        try encoder.encodeUnknownFields(extras, excluding: Self.knownKeys)
     }
 }
 
@@ -120,6 +139,18 @@ public enum ConditionRule: Hashable, Sendable {
 extension ConditionRule: Codable {
     private enum CodingKeys: String, CodingKey {
         case kind, keyword, question, provider, model
+    }
+
+    /// The keys this rule writes. Anything else in a saved condition object
+    /// is preserved by the owning Node (`conditionExtras`), so this enum's
+    /// cases stay as they are.
+    var encodedKeys: Set<String> {
+        let keys: [CodingKeys]
+        switch self {
+        case .containsKeyword: keys = [.kind, .keyword]
+        case .llmYesNo: keys = [.kind, .question, .provider, .model]
+        }
+        return Set(keys.map(\.stringValue))
     }
 
     private enum Kind: String, Codable {
@@ -182,6 +213,14 @@ public struct Node: Identifiable, Hashable, Sendable {
     public var name: String
     public var position: Point
     public var config: NodeConfig
+    /// Fields of the saved node object this build doesn't know (written by a
+    /// newer version). Kept so an open/save round-trip here doesn't strip
+    /// them. The nested `input` and `condition` objects keep theirs in
+    /// `inputExtras` / `conditionExtras`; the agent object in
+    /// `AgentConfig.extras`.
+    public var extras: [String: JSONValue] = [:]
+    public var inputExtras: [String: JSONValue] = [:]
+    public var conditionExtras: [String: JSONValue] = [:]
 
     public var kind: NodeKind { config.kind }
 
@@ -233,6 +272,32 @@ extension Node: Codable {
         var text: String
     }
 
+    /// The keys a node of this kind writes; anything else is an extra.
+    private static func encodedKeys(for kind: NodeKind) -> Set<String> {
+        var keys: [CodingKeys] = [.id, .name, .position, .type]
+        switch kind {
+        case .input: keys.append(.input)
+        case .agent: keys.append(.agent)
+        case .condition: keys.append(.condition)
+        case .output, .unknown: break
+        }
+        return Set(keys.map(\.stringValue))
+    }
+
+    private static let inputKeys: Set<String> = ["text"]
+
+    /// A condition object: the rule's own keys plus what this build doesn't
+    /// know, written into one JSON object.
+    private struct ConditionPayload: Encodable {
+        let rule: ConditionRule
+        let extras: [String: JSONValue]
+
+        func encode(to encoder: Encoder) throws {
+            try rule.encode(to: encoder)
+            try encoder.encodeUnknownFields(extras, excluding: rule.encodedKeys)
+        }
+    }
+
     // Strict: throws on an unrecognized type or an undecodable payload. The
     // forward-compatible path lives in Node.init(preservingUnknownFrom:), which
     // catches those throws and preserves the node instead of failing the file.
@@ -246,14 +311,22 @@ extension Node: Codable {
             )
         }
         let config: NodeConfig
+        var inputExtras: [String: JSONValue] = [:]
+        var conditionExtras: [String: JSONValue] = [:]
         switch kind {
         case .input:
             let payload = try container.decodeIfPresent(InputPayload.self, forKey: .input)
             config = .input(text: payload?.text ?? "")
+            if let raw = try container.decodeIfPresent([String: JSONValue].self, forKey: .input) {
+                inputExtras = raw.filter { !Self.inputKeys.contains($0.key) }
+            }
         case .agent:
             config = .agent(try container.decodeIfPresent(AgentConfig.self, forKey: .agent) ?? AgentConfig())
         case .condition:
-            config = .condition(try container.decode(ConditionRule.self, forKey: .condition))
+            let rule = try container.decode(ConditionRule.self, forKey: .condition)
+            config = .condition(rule)
+            let raw = try container.decode([String: JSONValue].self, forKey: .condition)
+            conditionExtras = raw.filter { !rule.encodedKeys.contains($0.key) }
         case .output:
             config = .output
         case .unknown:
@@ -268,6 +341,9 @@ extension Node: Codable {
             position: try container.decodeIfPresent(Point.self, forKey: .position) ?? Point(),
             config: config
         )
+        self.extras = try decoder.unknownFields(excluding: Self.encodedKeys(for: kind))
+        self.inputExtras = inputExtras
+        self.conditionExtras = conditionExtras
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -284,16 +360,21 @@ extension Node: Codable {
         try container.encode(kind, forKey: .type)
         switch config {
         case .input(let text):
-            try container.encode(InputPayload(text: text), forKey: .input)
+            var input = container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: .input)
+            try input.encode(text, forKey: AnyCodingKey("text"))
+            for (key, value) in inputExtras where !Self.inputKeys.contains(key) {
+                try input.encode(value, forKey: AnyCodingKey(key))
+            }
         case .agent(let agentConfig):
             try container.encode(agentConfig, forKey: .agent)
         case .condition(let rule):
-            try container.encode(rule, forKey: .condition)
+            try container.encode(ConditionPayload(rule: rule, extras: conditionExtras), forKey: .condition)
         case .output:
             break
         case .unknown:
             break // handled by the early return above
         }
+        try encoder.encodeUnknownFields(extras, excluding: Self.encodedKeys(for: kind))
     }
 }
 
@@ -312,6 +393,8 @@ public struct Edge: Identifiable, Hashable, Sendable {
     public var from: UUID
     public var fromPort: SourcePort
     public var to: UUID
+    /// Fields of the saved edge this build doesn't know, kept on save.
+    public var extras: [String: JSONValue] = [:]
 
     public init(id: UUID = UUID(), from: UUID, fromPort: SourcePort = .output, to: UUID) {
         self.id = id
@@ -322,9 +405,11 @@ public struct Edge: Identifiable, Hashable, Sendable {
 }
 
 extension Edge: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, from, fromPort, to
     }
+
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -334,6 +419,16 @@ extension Edge: Codable {
             fromPort: try container.decodeIfPresent(SourcePort.self, forKey: .fromPort) ?? .output,
             to: try container.decode(UUID.self, forKey: .to)
         )
+        self.extras = try decoder.unknownFields(excluding: Self.knownKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(from, forKey: .from)
+        try container.encode(fromPort, forKey: .fromPort)
+        try container.encode(to, forKey: .to)
+        try encoder.encodeUnknownFields(extras, excluding: Self.knownKeys)
     }
 }
 
@@ -347,6 +442,8 @@ public struct FlowGraph: Hashable, Sendable {
     public var name: String
     public var nodes: [Node]
     public var edges: [Edge]
+    /// Top-level fields of the saved flow this build doesn't know, kept on save.
+    public var extras: [String: JSONValue] = [:]
 
     public init(
         schemaVersion: Int = FlowGraph.currentSchemaVersion,
@@ -374,9 +471,11 @@ public struct FlowGraph: Hashable, Sendable {
 }
 
 extension FlowGraph: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, name, nodes, edges
     }
+
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -389,6 +488,16 @@ extension FlowGraph: Codable {
             nodes: rawNodes.map(Node.init(preservingUnknownFrom:)),
             edges: try container.decodeIfPresent([Edge].self, forKey: .edges) ?? []
         )
+        self.extras = try decoder.unknownFields(excluding: Self.knownKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(name, forKey: .name)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encode(edges, forKey: .edges)
+        try encoder.encodeUnknownFields(extras, excluding: Self.knownKeys)
     }
 }
 

@@ -55,3 +55,43 @@ public enum JSONValue: Codable, Hashable, Sendable {
         return nil
     }
 }
+
+// MARK: - Keys this build doesn't know
+
+/// A coding key for any string, so a decoder can list an object's keys and an
+/// encoder can write arbitrary ones back.
+struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+
+    init(_ stringValue: String) { self.stringValue = stringValue }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
+}
+
+extension Decoder {
+    /// Every key of the object being decoded that isn't in `known`, kept as raw
+    /// JSON. This is how a flow saved by a newer build keeps the fields this
+    /// build doesn't understand through an open/save round-trip.
+    func unknownFields(excluding known: Set<String>) throws -> [String: JSONValue] {
+        let container = try self.container(keyedBy: AnyCodingKey.self)
+        var extras: [String: JSONValue] = [:]
+        for key in container.allKeys where !known.contains(key.stringValue) {
+            extras[key.stringValue] = try container.decode(JSONValue.self, forKey: key)
+        }
+        return extras
+    }
+}
+
+extension Encoder {
+    /// Writes preserved unknown fields into the object being encoded. Call it
+    /// after the known keys; a key in `known` is never overwritten, so the
+    /// value this build owns always wins.
+    func encodeUnknownFields(_ extras: [String: JSONValue], excluding known: Set<String>) throws {
+        guard !extras.isEmpty else { return }
+        var container = self.container(keyedBy: AnyCodingKey.self)
+        for (key, value) in extras where !known.contains(key) {
+            try container.encode(value, forKey: AnyCodingKey(key))
+        }
+    }
+}
