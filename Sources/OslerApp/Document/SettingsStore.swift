@@ -34,8 +34,8 @@ final class SettingsStore: ObservableObject {
             applyAppearance()
         }
     }
-    /// Canvas behavior: double-clicking a node deletes it. Off = double-click
-    /// just selects, for people who fat-finger it.
+    /// Canvas behavior: double-clicking a node deletes it. Off (the default)
+    /// = double-click just selects; right-click › Remove always works.
     @Published var doubleClickRemoves: Bool {
         didSet { UserDefaults.standard.set(doubleClickRemoves, forKey: "doubleClickRemoves") }
     }
@@ -70,7 +70,9 @@ final class SettingsStore: ObservableObject {
         appearance = AppAppearance(
             rawValue: UserDefaults.standard.string(forKey: "appearance") ?? ""
         ) ?? .system
-        doubleClickRemoves = UserDefaults.standard.object(forKey: "doubleClickRemoves") as? Bool ?? true
+        // Off unless the user turned it on: a stray double-click used to
+        // delete a card. A choice stored explicitly still wins.
+        doubleClickRemoves = UserDefaults.standard.object(forKey: "doubleClickRemoves") as? Bool ?? false
         backdropTintID = UserDefaults.standard.string(forKey: "backdropTint") ?? ""
         nodeTintID = UserDefaults.standard.string(forKey: "nodeTint") ?? ""
         ollamaBaseURL = UserDefaults.standard.string(forKey: "ollamaBaseURL") ?? OllamaProvider.defaultBaseURL

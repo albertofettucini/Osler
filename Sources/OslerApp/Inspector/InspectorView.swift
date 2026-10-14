@@ -295,7 +295,9 @@ struct InspectorView: View {
             }
             historySection
             Spacer(minLength: 20)
-            Text("Select a node to edit it — shift-click or shift-drag a box to select several. Drag from either port onto another node to connect; click a wire or port dot to cut it. Double-click a node — or right-click it — to remove it. ⌘Z undoes anything.")
+            Text(settings.doubleClickRemoves
+                 ? "Select a node to edit it — shift-click or shift-drag a box to select several. Drag from either port onto another node to connect; click a wire or port dot to cut it. Double-click a node — or right-click it — to remove it. ⌘Z undoes anything."
+                 : "Select a node to edit it — shift-click or shift-drag a box to select several. Drag from either port onto another node to connect; click a wire or port dot to cut it. Right-click a node to remove it. ⌘Z undoes anything.")
                 .font(.oslerBody(11)).foregroundStyle(Theme.textFaint)
         }
     }

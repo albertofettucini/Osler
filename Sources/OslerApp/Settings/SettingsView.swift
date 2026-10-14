@@ -105,7 +105,7 @@ struct SettingsView: View {
     /// wall of colour.
     @ViewBuilder private var general: some View {
         groupCard {
-            row("Double-click removes a node", "Turn this off if you delete cards by accident.") {
+            row("Double-click removes a node", "Off by default. You can always right-click a node and choose Remove.") {
                 Toggle("", isOn: $settings.doubleClickRemoves)
                     .labelsHidden()
                     .toggleStyle(.switch)
